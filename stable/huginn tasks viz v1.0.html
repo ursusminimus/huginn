@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Task Burndown Chart Analyzer</title>
+    <!-- Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Plotly.js for charting (updated to a specific, newer version) -->
+    <script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
+    <!-- PapaParse for CSV parsing (updated to a more reliable CDN) -->
+    <script src="https://unpkg.com/papaparse@5.3.2/papaparse.min.js"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        /* Simple loader style */
+        .loader {
+            border: 5px solid #f3f3f3;
+            border-top: 5px solid #3498db;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800">
+
+    <div class="container mx-auto p-4 md:p-8">
+        <header class="bg-white rounded-lg shadow-md p-6 mb-8">
+            <h1 class="text-3xl font-bold text-gray-900">Task Burndown Analyzer</h1>
+            <p class="text-gray-600 mt-2">
+                Visualize your productivity with a burndown chart and a time-to-resolution histogram. 
+                The charts below are generated from the provided <code>muninn_example.csv</code>. You can upload your own CSV file to analyze your personal to-do list.
+            </p>
+            <div class="mt-4">
+                <label for="csvFile" class="block mb-2 text-sm font-medium text-gray-700">Upload your own CSV file:</label>
+                <input type="file" id="csvFile" accept=".csv" class="block w-full md:w-1/2 text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"/>
+            </div>
+        </header>
+
+        <main id="chartsContainer" class="space-y-8">
+            <!-- Loader section, hidden by default -->
+            <div id="loader" class="hidden justify-center items-center flex-col bg-white rounded-lg shadow-md p-6 h-64">
+                <div class="loader"></div>
+                <p class="mt-4 text-gray-600">Processing data and drawing charts...</p>
+            </div>
+
+            <!-- Charts will be injected here -->
+            <div id="burndownChartContainer" class="bg-white rounded-lg shadow-md p-4 min-h-[500px]"></div>
+            <div id="resolutionHistogramContainer" class="bg-white rounded-lg shadow-md p-4 min-h-[500px]"></div>
+        </main>
+    </div>
+
+    <script>
+        const fileInput = document.getElementById('csvFile');
+        const loader = document.getElementById('loader');
+        const burndownChartContainer = document.getElementById('burndownChartContainer');
+        const resolutionHistogramContainer = document.getElementById('resolutionHistogramContainer');
+
+        // --- UTILITY FUNCTIONS ---
+        
+        /**
+         * Parses a date string (YYYY-MM-DD or ISO) and returns a YYYY-MM-DD string.
+         * @param {string} dateStr - The date string to parse.
+         * @returns {string|null} The formatted date string or null if invalid.
+         */
+        const getUTCDateString = (dateStr) => {
+            if (!dateStr) return null;
+            try {
+                // Handle both 'YYYY-MM-DD' and full ISO strings by creating a UTC date
+                const [year, month, day] = dateStr.split('T')[0].split('-').map(Number);
+                if (!year || !month || !day) return null;
+                const date = new Date(Date.UTC(year, month - 1, day));
+                return date.toISOString().split('T')[0];
+            } catch (e) {
+                console.error(`Invalid date string: ${dateStr}`, e);
+                return null;
+            }
+        };
+        
+        /**
+         * Generates a range of dates between a start and end date.
+         * @param {Date} start - The start date.
+         * @param {Date} end - The end date.
+         * @returns {string[]} An array of date strings in YYYY-MM-DD format.
+         */
+        const getDateRange = (start, end) => {
+            const dates = [];
+            let currentDate = new Date(start.valueOf());
+            currentDate.setUTCHours(0, 0, 0, 0);
+            while (currentDate <= end) {
+                dates.push(currentDate.toISOString().split('T')[0]);
+                currentDate.setUTCDate(currentDate.getUTCDate() + 1);
+            }
+            return dates;
+        };
+
+        // --- MAIN LOGIC ---
+
+        /**
+         * Processes parsed CSV data and renders the charts.
+         * @param {Array<Object>} data - The array of task objects from PapaParse.
+         */
+        const processAndDrawCharts = (data) => {
+            const dailyMetrics = new Map();
+            const resolutionTimes = [];
+            let minDate = new Date();
+            let maxDate = new Date(1970, 0, 1);
+            
+            // 1. First pass: Aggregate daily counts and find date range
+            data.forEach(task => {
+                if (!task.id || !task.createdAt) return; // Skip empty/invalid rows
+
+                const createdAtDateStr = getUTCDateString(task.createdAt);
+                if (createdAtDateStr) {
+                    const createdAtDate = new Date(createdAtDateStr);
+                    if (createdAtDate < minDate) minDate = createdAtDate;
+                    if (createdAtDate > maxDate) maxDate = createdAtDate;
+
+                    if (!dailyMetrics.has(createdAtDateStr)) {
+                        dailyMetrics.set(createdAtDateStr, { created: 0, completed: 0, stopped: 0 });
+                    }
+                    dailyMetrics.get(createdAtDateStr).created++;
+                }
+
+                if (task.finishedAt && (task.status === 'completed' || task.status === 'stopped')) {
+                    const finishedAtDateStr = getUTCDateString(task.finishedAt);
+                    if(finishedAtDateStr) {
+                         const finishedAtDate = new Date(finishedAtDateStr);
+                         if (finishedAtDate > maxDate) maxDate = finishedAtDate;
+
+                        if (!dailyMetrics.has(finishedAtDateStr)) {
+                            dailyMetrics.set(finishedAtDateStr, { created: 0, completed: 0, stopped: 0 });
+                        }
+                        if (task.status === 'completed') {
+                            dailyMetrics.get(finishedAtDateStr).completed++;
+                            // Calculate resolution time
+                            if (task.createdAt && task.finishedAt) {
+                                const timeDiff = new Date(task.finishedAt) - new Date(task.createdAt);
+                                resolutionTimes.push(timeDiff / (1000 * 60 * 60 * 24)); // in days
+                            }
+                        } else {
+                            dailyMetrics.get(finishedAtDateStr).stopped++;
+                        }
+                    }
+                }
+                 // Extend maxDate for future projections
+                const nextActionDate = task.nextActionDate ? new Date(getUTCDateString(task.nextActionDate)) : null;
+                const deadline = task.deadline ? new Date(getUTCDateString(task.deadline)) : null;
+                if (nextActionDate && nextActionDate > maxDate) maxDate = nextActionDate;
+                if (deadline && deadline > maxDate) maxDate = deadline;
+            });
+
+            // Add some buffer to the future dates
+            maxDate.setUTCDate(maxDate.getUTCDate() + 7);
+
+            const allDates = getDateRange(minDate, maxDate);
+            const burndownData = {
+                dates: allDates,
+                created: [],
+                completed: [],
+                stopped: [],
+                open: [],
+                nextActionDue: [],
+                deadlineDue: [],
+            };
+
+            // 2. Second pass: Calculate cumulative totals
+            let openTasks = 0;
+            allDates.forEach(dateStr => {
+                const day = dailyMetrics.get(dateStr) || { created: 0, completed: 0, stopped: 0 };
+                openTasks += day.created - day.completed - day.stopped;
+
+                burndownData.created.push(day.created);
+                burndownData.completed.push(day.completed);
+                burndownData.stopped.push(day.stopped);
+                burndownData.open.push(openTasks);
+
+                // Calculate cumulative future tasks
+                let nextActionCount = 0;
+                let deadlineCount = 0;
+                data.forEach(task => {
+                    const nextActionStr = getUTCDateString(task.nextActionDate);
+                    const deadlineStr = getUTCDateString(task.deadline);
+                    if (task.status === 'open' && nextActionStr && nextActionStr <= dateStr) {
+                       nextActionCount++;
+                    }
+                    if (task.status === 'open' && deadlineStr && deadlineStr <= dateStr) {
+                       deadlineCount++;
+                    }
+                });
+                burndownData.nextActionDue.push(nextActionCount);
+                burndownData.deadlineDue.push(deadlineCount);
+            });
+            
+            // 3. Draw the charts
+            drawBurndownChart(burndownData);
+            drawResolutionHistogram(resolutionTimes);
+        };
+
+        /**
+         * Renders the burndown chart using Plotly.
+         * @param {Object} burndownData - The processed data for the chart.
+         */
+        const drawBurndownChart = (burndownData) => {
+            const traceCreated = {
+                x: burndownData.dates, y: burndownData.created,
+                name: 'Created', type: 'bar', marker: { color: '#22c55e' } // green-500
+            };
+            const traceCompleted = {
+                x: burndownData.dates, y: burndownData.completed,
+                name: 'Completed', type: 'bar', marker: { color: '#3b82f6' } // blue-500
+            };
+            const traceStopped = {
+                x: burndownData.dates, y: burndownData.stopped,
+                name: 'Stopped', type: 'bar', marker: { color: '#f97316' } // orange-500
+            };
+            const traceOpen = {
+                x: burndownData.dates, y: burndownData.open,
+                name: 'Total Open', type: 'scatter', mode: 'lines+markers',
+                line: { color: '#ef4444' }, yaxis: 'y2' // red-500
+            };
+             const traceNextAction = {
+                x: burndownData.dates, y: burndownData.nextActionDue,
+                name: 'Cumulative Next Action', type: 'scatter', mode: 'lines',
+                line: { color: '#a855f7', dash: 'dot' }, yaxis: 'y2' // purple-500
+            };
+            const traceDeadline = {
+                x: burndownData.dates, y: burndownData.deadlineDue,
+                name: 'Cumulative Deadline', type: 'scatter', mode: 'lines',
+                line: { color: '#eab308', dash: 'dash' }, yaxis: 'y2' // yellow-500
+            };
+
+            const layout = {
+                title: { text: '<b>Task Burndown and Throughput</b>', font: { size: 20 } },
+                barmode: 'group',
+                xaxis: { title: 'Date', gridcolor: '#e5e7eb' },
+                yaxis: { title: 'Daily Count', gridcolor: '#e5e7eb' },
+                yaxis2: {
+                    title: 'Total Open Tasks',
+                    overlaying: 'y',
+                    side: 'right',
+                    gridcolor: '#e5e7eb',
+                    rangemode: 'tozero'
+                },
+                legend: { x: 0.5, y: -0.2, xanchor: 'center', orientation: 'h' },
+                margin: { l: 60, r: 60, t: 80, b: 100 },
+                paper_bgcolor: 'white',
+                plot_bgcolor: 'white'
+            };
+
+            Plotly.newPlot(burndownChartContainer, [traceCreated, traceCompleted, traceStopped, traceOpen, traceNextAction, traceDeadline], layout, {responsive: true});
+        };
+
+        /**
+         * Renders the time-to-resolution histogram using Plotly.
+         * @param {number[]} resolutionTimes - Array of resolution times in days.
+         */
+        const drawResolutionHistogram = (resolutionTimes) => {
+            const trace = {
+                x: resolutionTimes,
+                type: 'histogram',
+                marker: { color: '#14b8a6' } // teal-500
+            };
+            
+            const layout = {
+                title: { text: '<b>Time to Resolution for Completed Tasks</b>', font: { size: 20 } },
+                xaxis: { title: 'Time to Resolution (Days)', gridcolor: '#e5e7eb' },
+                yaxis: { title: 'Number of Tasks', gridcolor: '#e5e7eb' },
+                margin: { l: 60, r: 60, t: 80, b: 80 },
+                paper_bgcolor: 'white',
+                plot_bgcolor: 'white'
+            };
+
+            Plotly.newPlot(resolutionHistogramContainer, [trace], layout, {responsive: true});
+        };
+
+        /**
+         * Handles file input change event.
+         * @param {Event} event - The file input event.
+         */
+        const handleFileSelect = (event) => {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            loader.classList.remove('hidden');
+            loader.classList.add('flex');
+            burndownChartContainer.innerHTML = '';
+            resolutionHistogramContainer.innerHTML = '';
+
+            Papa.parse(file, {
+                header: true,
+                skipEmptyLines: true,
+                complete: (results) => {
+                    processAndDrawCharts(results.data);
+                    loader.classList.add('hidden');
+                    loader.classList.remove('flex');
+                },
+                error: (err) => {
+                    console.error("PapaParse Error:", err);
+                    alert('Error parsing CSV file. Please check the console for details.');
+                    loader.classList.add('hidden');
+                    loader.classList.remove('flex');
+                }
+            });
+        };
+        
+        // --- INITIALIZATION ---
+        
+        /**
+         * Loads and processes the default CSV file on page load.
+         */
+        const loadInitialData = () => {
+             loader.classList.remove('hidden');
+             loader.classList.add('flex');
+             //FIX: Embed the default data as a string to avoid CORS errors when loading from file://
+             const defaultCsvData = `id,status,createdAt,finishedAt,text,description,category,effort,order,nextActionDate,deadline
+"1760812629502","completed","2025-10-16T18:36:59.502Z","2025-10-18T16:43:25.501Z","test1","","Misc","1","1","2025-10-21",""
+"1760812631042","open","2025-10-16T18:37:01.042Z","","test2","","Misc","1","2","2025-10-21",""
+"1760812642355","stopped","2025-10-16T18:37:02.355Z","2025-10-17T18:43:36.350Z","test3","","Misc","1","3","2025-10-21",""
+"1760812609502","completed","2025-10-16T18:36:59.502Z","2025-10-17T18:43:25.501Z","test1","","Misc","1","1","2025-10-21",""
+"1760812651042","open","2025-10-16T18:37:01.042Z","","test2","","Misc","1","2","2025-10-21",""
+"1760812682355","stopped","2025-10-16T18:37:02.355Z","2025-10-18T18:43:36.350Z","test3","","Misc","1","3","2025-10-21",""
+`;
+             try {
+                Papa.parse(defaultCsvData, {
+                    header: true,
+                    skipEmptyLines: true,
+                    complete: (results) => processAndDrawCharts(results.data),
+                    error: (err) => { throw err; }
+                });
+             } catch (error) {
+                console.error("Error loading initial data:", error);
+                burndownChartContainer.innerHTML = `<div class="p-4 text-red-600">Could not load the default embedded data. Please use the file input above to upload your data.</div>`;
+                resolutionHistogramContainer.innerHTML = '';
+             } finally {
+                loader.classList.add('hidden');
+                loader.classList.remove('flex');
+             }
+        };
+
+        fileInput.addEventListener('change', handleFileSelect);
+        
+        // Load the default data when the script runs.
+        window.addEventListener('DOMContentLoaded', loadInitialData);
+
+    </script>
+</body>
+</html>
+

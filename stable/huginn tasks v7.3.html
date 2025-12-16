@@ -1,0 +1,743 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Huginn - Todo Manager</title>
+    <style>
+        /* Basic Styling */
+        body {
+            font-family: "Georgia", serif;
+            padding: 15px;
+            font-size: 0.9em;
+            background-color: #2A3439;
+            color: #1f1f1f; /* Default text color */
+         }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+            table-layout: fixed; /* Helps with column width consistency */
+            user-select: none; /* Prevent text selection during clicks */
+        }
+        th, td {
+            border: 1px solid #5a5a5a; /* Darker border */
+            padding: 8px;
+            text-align: left;
+            vertical-align: middle; /* Align content vertically */
+            word-wrap: break-word; /* Wrap long text */
+        }
+        /* Adjust column widths */
+        th:nth-child(1), td:nth-child(1) { width: 7%; }   /* Actions */
+        th:nth-child(2), td:nth-child(2) { width: 5%; }   /* Order */
+        th:nth-child(3), td:nth-child(3) { width: 26%; }  /* Task */
+        th:nth-child(4), td:nth-child(4) { width: 6%; }   /* Category */
+        th:nth-child(5), td:nth-child(5) { width: 4%; }   /* Eff */
+        th:nth-child(6), td:nth-child(6) { width: 8%; }   /* Created */
+        th:nth-child(7), td:nth-child(7) { width: 8%; }   /* Next Action */
+        th:nth-child(8), td:nth-child(8) { width: 8%; }   /* Deadline */
+        th:nth-child(9), td:nth-child(9) { width: 28%; }  /* Description */
+
+        th {
+            background-color: #2f4f4f; /* Dark Slate Gray */
+            color: #DBD7D2; /* Light text on dark header */
+            cursor: pointer;
+            position: relative; /* Needed for indicator positioning */
+         }
+        /* Alternating row colors */
+        tr:nth-child(even) { background-color: #E5E9EB; }
+        tr:nth-child(odd) { background-color: #DBD7D2; }
+        tr:hover { background-color: #008C82; color: #ffffff; } /* Teal hover, white text */
+        tr:hover td { border-color: #005f5f; } /* Darker teal border on hover */
+
+        /* Styling for completed rows */
+        tr.completed td {
+            text-decoration: line-through;
+            color: #555 !important;
+            background-color: #d0d0d0 !important;
+        }
+         tr.completed:hover td {
+             background-color: #b0b0b0 !important;
+             color: #333 !important;
+         }
+         tr.completed td:first-child button, tr.stopped td:first-child button {
+             color: #444;
+             text-decoration: none;
+         }
+          tr.completed td:first-child button:hover, tr.stopped td:first-child button:hover {
+             color: #005f5f;
+         }
+
+        /* Styling for stopped rows */
+        tr.stopped td {
+            text-decoration: line-through;
+            color: #776666 !important;
+            background-color: #f0e0e0 !important;
+        }
+        tr.stopped:hover td {
+            background-color: #e0d0d0 !important;
+            color: #333 !important;
+        }
+
+        /* Styling for selected rows */
+        tr.selected-row td {
+            background-color: #a8d8d4 !important;
+        }
+        tr.selected-row:hover td {
+             background-color: #88c8c4 !important;
+        }
+
+        /* Styling for date highlighting */
+        td.date-past {
+            background-color: #ffdddd !important;
+            color: #a00 !important;
+            font-weight: bold;
+        }
+        td.date-today {
+            background-color: #fff0dd !important;
+            color: #a60 !important;
+            font-weight: bold;
+        }
+        tr.completed td.date-past, tr.completed td.date-today,
+        tr.stopped td.date-past, tr.stopped td.date-today {
+             background-color: inherit;
+             color: inherit;
+             text-decoration: line-through;
+        }
+
+        /* Control and Form Styling */
+        #filterControls {
+            margin-top: 15px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            align-items: center;
+            background-color: #DBD7D2;
+            border: 1px solid #5a5a5a;
+            padding: 10px;
+            border-radius: 5px;
+        }
+        #filterControls input[type="text"] {
+            flex-grow: 1;
+            min-width: 150px;
+            padding: 6px;
+            border: 1px solid #888;
+            border-radius: 3px;
+        }
+        .form-actions {
+            grid-column: 4 / 5;
+            justify-self: end;
+            display: flex;
+            gap: 10px;
+        }
+
+        .add-form {
+            margin-bottom: 0;
+            display: grid;
+            grid-template-columns: auto 1fr auto 1fr;
+            gap: 10px 15px;
+            align-items: center;
+            background-color: #DBD7D2;
+            border: 1px solid #5a5a5a;
+            padding: 15px;
+            border-radius: 5px;
+        }
+        .add-form label {
+             font-weight: bold;
+             text-align: right;
+        }
+        .add-form input, .add-form select {
+            width: 100%;
+            padding: 6px;
+            border: 1px solid #888;
+            border-radius: 3px;
+            box-sizing: border-box;
+        }
+
+        button {
+            padding: 8px 12px;
+            background-color: #008C82;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background-color 0.2s ease;
+        }
+        button:hover {
+            background-color: #005f5f;
+        }
+        td:first-child { text-align: center; }
+        td:first-child button {
+            background: none;
+            border: none;
+            font-size: 1.3em;
+            cursor: pointer;
+            padding: 2px;
+            margin: 0 3px;
+            color: #2f4f4f;
+            vertical-align: middle;
+            line-height: 1;
+        }
+         td:first-child button:hover {
+             color: #008C82;
+         }
+
+         td.todo-description {
+             font-size: 0.85em;
+             color: #333;
+         }
+
+        th.sort-asc::after, th.sort-desc::after {
+            position: absolute;
+            right: 8px;
+            top: 50%;
+            transform: translateY(-50%);
+            font-size: 0.8em;
+            color: #a0d0d0;
+        }
+        th.sort-asc::after { content: ' ▲'; }
+        th.sort-desc::after { content: ' ▼'; }
+
+        #summaryStats {
+            margin-top: 20px;
+            padding: 10px;
+            background-color: #DBD7D2;
+            border: 1px solid #5a5a5a;
+            border-radius: 5px;
+            text-align: center;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <form class="add-form">
+        <label for="todoText">Task:</label>
+        <input type="text" id="todoText" placeholder="Task description..." required>
+
+        <label for="description">Description:</label>
+        <input type="text" id="description" placeholder="Optional details...">
+        
+        <label for="nextActionDate">Next Action:</label>
+        <input type="date" id="nextActionDate">
+
+        <label for="deadline">Deadline:</label>
+        <input type="date" id="deadline">
+
+        <label for="effort">Effort (1+):</label>
+        <input type="number" id="effort" min="1" value="1">
+        
+        <label for="order">Order:</label>
+        <input type="number" id="order" step="any" placeholder="Auto">
+
+        <label for="category">Category:</label>
+        <select id="category">
+            <option value="Misc">Misc</option>
+            <option value="PPMO">PPMO</option>
+            <option value="VAST">VA/ST</option>
+            <option value="OGC3">OGC3</option>
+        </select>
+        
+        <div class="form-actions">
+             <button id="saveButton" type="button" title="Save current list to muninn.csv file">Export CSV</button>
+             <button id="loadButton" type="button" title="Load list from a .csv or .json file">Import</button>
+             <input type="file" id="fileInput" accept=".csv,.json" style="display: none;">
+             <button id="addButton" type="button">Add Task</button>
+        </div>
+    </form>
+
+    <div id="filterControls">
+        <input type="text" id="filterText" placeholder="Filter tasks...">
+        <button id="toggleViewButton" title="Toggle between showing only open tasks and all tasks">Show Open</button>
+        <button id="recalculateOrderButton" title="Re-number the order of currently visible tasks sequentially">Recalculate Order</button>
+    </div>
+
+    <table>
+        <thead>
+            <tr>
+                <th data-sort-key="status" title="Sort by Status / Actions">Actions</th>
+                <th data-sort-key="order" title="Sort by Order">Order</th>
+                <th data-sort-key="text" title="Sort by Task">Task</th>
+                <th data-sort-key="category" title="Sort by Category">Category</th>
+                <th data-sort-key="effort" title="Sort by Effort">Eff</th>
+                <th data-sort-key="createdAt" title="Sort by Creation Date">Created</th>
+                <th data-sort-key="nextActionDate" title="Sort by Next Action Date">Next Action</th>
+                <th data-sort-key="deadline" title="Sort by Deadline">Deadline</th>
+                <th data-sort-key="description" title="Sort by Description">Description</th>
+            </tr>
+        </thead>
+        <tbody id="todoTableBody">
+        </tbody>
+    </table>
+
+    <div id="summaryStats"></div>
+
+    <script>
+        // --- DOM Elements ---
+        const todoText = document.getElementById('todoText');
+        const descriptionInput = document.getElementById('description');
+        const nextActionDateInput = document.getElementById('nextActionDate');
+        const deadlineInput = document.getElementById('deadline');
+        const categoryInput = document.getElementById('category');
+        const effortInput = document.getElementById('effort');
+        const orderInput = document.getElementById('order');
+        const addButton = document.getElementById('addButton');
+        const todoTableBody = document.getElementById('todoTableBody');
+        const saveButton = document.getElementById('saveButton');
+        const loadButton = document.getElementById('loadButton');
+        const fileInput = document.getElementById('fileInput');
+        const addForm = document.querySelector('.add-form');
+        const filterTextInput = document.getElementById('filterText');
+        const summaryStats = document.getElementById('summaryStats');
+        const toggleViewButton = document.getElementById('toggleViewButton');
+        const recalculateOrderButton = document.getElementById('recalculateOrderButton');
+
+        // --- Application State ---
+        let todos = [];
+        let editingId = null;
+        let selectedIds = new Set();
+        let currentSortKey = 'order';
+        let currentSortDirection = 'asc';
+        let currentFilterText = '';
+        let showAllTasks = false;
+        let todayStr = '';
+
+        // --- Utility Functions ---
+        function getTodayDateString() {
+            const today = new Date();
+            return today.toISOString().split('T')[0];
+        }
+
+        // --- localStorage Functions ---
+        const STORAGE_KEY = 'muninnData';
+
+        function saveToLocalStorage() {
+            try {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(todos));
+            } catch (error) { console.error("Error saving to localStorage:", error); }
+        }
+
+        function loadFromLocalStorage() {
+            const savedData = localStorage.getItem(STORAGE_KEY);
+            if (!savedData) return;
+            try {
+                const parsedData = JSON.parse(savedData);
+                if (Array.isArray(parsedData)) {
+                    todos = parsedData.map(t => normalizeTodo(t));
+                }
+            } catch (error) { console.error("Error parsing data from localStorage:", error); }
+        }
+        
+        function normalizeTodo(t) {
+            const status = t.status ? t.status : (t.completed ? 'completed' : 'open');
+            return {
+                id: t.id || Date.now(),
+                text: t.text || 'Unnamed Task',
+                description: t.description || '',
+                status: status,
+                createdAt: t.createdAt || new Date().toISOString(),
+                finishedAt: t.finishedAt || null,
+                nextActionDate: t.nextActionDate || null,
+                deadline: t.deadline || null,
+                category: t.category || 'Misc',
+                effort: parseInt(t.effort, 10) || 1,
+                order: parseFloat(t.order) || 0
+            };
+        }
+
+        // --- Date Formatting Helper ---
+        function formatDateISO(dateString) {
+             if (!dateString) return '';
+             return dateString.split('T')[0];
+        }
+
+        // --- Main Logic ---
+        function getFilteredAndSortedTodos() {
+            // 1. Filter by status (open vs all)
+            let filtered = todos.filter(todo => showAllTasks || todo.status === 'open');
+
+            // 2. Filter by text input
+            const lowerCaseFilter = currentFilterText.toLowerCase().trim();
+            if (lowerCaseFilter) {
+                filtered = filtered.filter(todo =>
+                    Object.values(todo).some(val => 
+                        String(val).toLowerCase().includes(lowerCaseFilter)
+                    )
+                );
+            }
+
+            // 3. Sort
+            filtered.sort((a, b) => {
+                const key = currentSortKey;
+                let valA = a[key];
+                let valB = b[key];
+                const isANull = valA === null || valA === '';
+                const isBNull = valB === null || valB === '';
+                if (isANull && isBNull) return 0;
+                if (isANull) return 1;
+                if (isBNull) return -1;
+
+                let comparison = 0;
+                if (typeof valA === 'string') {
+                    comparison = valA.localeCompare(valB);
+                } else if (typeof valA === 'number') {
+                    comparison = valA - valB;
+                }
+                return currentSortDirection === 'asc' ? comparison : -comparison;
+            });
+            return filtered;
+        }
+
+        function renderTodos() {
+            todayStr = getTodayDateString();
+            todoTableBody.innerHTML = '';
+            const todosToRender = getFilteredAndSortedTodos();
+
+            // Update sort indicators
+            document.querySelectorAll('thead th[data-sort-key]').forEach(th => {
+                th.classList.remove('sort-asc', 'sort-desc');
+                if (th.dataset.sortKey === currentSortKey) {
+                    th.classList.add(currentSortDirection === 'asc' ? 'sort-asc' : 'sort-desc');
+                }
+            });
+
+            todosToRender.forEach(todo => {
+                const tr = document.createElement('tr');
+                tr.dataset.id = todo.id;
+                if (todo.status !== 'open') tr.classList.add(todo.status);
+                if (selectedIds.has(todo.id)) tr.classList.add('selected-row');
+
+                // Actions
+                const tdActions = document.createElement('td');
+                const completeButton = document.createElement('button');
+                completeButton.textContent = todo.status === 'open' ? '✅' : '🔄';
+                completeButton.title = todo.status === 'open' ? 'Complete Task' : 'Re-open Task';
+                completeButton.onclick = (e) => { e.stopPropagation(); toggleStatus(todo.id); };
+                tdActions.appendChild(completeButton);
+
+                const editButton = document.createElement('button');
+                editButton.textContent = '✏️';
+                editButton.title = 'Edit Task';
+                editButton.onclick = (e) => { e.stopPropagation(); startEdit(todo.id); };
+                tdActions.appendChild(editButton);
+
+                if (todo.status === 'open') {
+                    const stopButton = document.createElement('button');
+                    stopButton.textContent = '🗑️';
+                    stopButton.title = 'Stop Task';
+                    stopButton.onclick = (e) => { e.stopPropagation(); stopTask(todo.id); };
+                    tdActions.appendChild(stopButton);
+                }
+                tr.appendChild(tdActions);
+
+                // Data cells
+                tr.appendChild(document.createElement('td')).textContent = todo.order.toFixed(2);
+                tr.appendChild(document.createElement('td')).textContent = todo.text;
+                tr.appendChild(document.createElement('td')).textContent = todo.category;
+                tr.appendChild(document.createElement('td')).textContent = todo.effort;
+                tr.appendChild(document.createElement('td')).textContent = formatDateISO(todo.createdAt);
+                
+                ['nextActionDate', 'deadline'].forEach(key => {
+                    const td = document.createElement('td');
+                    const date = formatDateISO(todo[key]);
+                    td.textContent = date;
+                    if (date && todo.status === 'open') {
+                        if (date < todayStr) td.classList.add('date-past');
+                        else if (date === todayStr) td.classList.add('date-today');
+                    }
+                    tr.appendChild(td);
+                });
+                
+                const tdDesc = document.createElement('td');
+                tdDesc.textContent = todo.description || '';
+                tdDesc.className = 'todo-description';
+                tr.appendChild(tdDesc);
+
+                todoTableBody.appendChild(tr);
+            });
+            updateSummary();
+        }
+
+        function updateSummary() {
+            const open = todos.filter(t => t.status === 'open').length;
+            const completed = todos.filter(t => t.status === 'completed').length;
+            const stopped = todos.filter(t => t.status === 'stopped').length;
+            summaryStats.textContent = `# of tasks: Open ${open}; Completed ${completed}; Stopped ${stopped}`;
+            toggleViewButton.textContent = showAllTasks ? "Show Open" : `Show All (${todos.length})`;
+        }
+
+        // --- CRUD Functions ---
+        function addOrUpdateTodo() {
+            const text = todoText.value.trim();
+            if (!editingId && !text) return;
+
+            const effortValue = parseInt(effortInput.value, 10);
+            const orderValue = parseFloat(orderInput.value);
+
+            if (editingId) {
+                // UPDATE operation
+                const isBulkUpdate = selectedIds.size > 1 && selectedIds.has(editingId);
+
+                if (isBulkUpdate) {
+                    // Apply only fields that make sense to bulk-edit.
+                    // Excludes text, description, and order.
+                    const bulkUpdateData = {
+                        nextActionDate: nextActionDateInput.value || null,
+                        deadline: deadlineInput.value || null,
+                        category: categoryInput.value,
+                        effort: isNaN(effortValue) ? 1 : Math.max(1, effortValue),
+                    };
+                    todos = todos.map(todo =>
+                        selectedIds.has(todo.id) ? { ...todo, ...bulkUpdateData } : todo
+                    );
+                } else {
+                    // SINGLE item update. Apply all fields from the form.
+                    const singleUpdateData = {
+                        text: text,
+                        description: descriptionInput.value.trim(),
+                        nextActionDate: nextActionDateInput.value || null,
+                        deadline: deadlineInput.value || null,
+                        category: categoryInput.value,
+                        effort: isNaN(effortValue) ? 1 : Math.max(1, effortValue),
+                        order: isNaN(orderValue) ? 0 : orderValue, // Default to 0 if invalid
+                    };
+                    todos = todos.map(todo =>
+                        todo.id === editingId ? { ...todo, ...singleUpdateData } : todo
+                    );
+                }
+            } else {
+                // ADD NEW operation
+                const now = new Date();
+                const activeTasks = todos.filter(t => t.status === 'open');
+                const maxOrder = activeTasks.length > 0 ? Math.max(...activeTasks.map(t => t.order)) : 0;
+                
+                const newTodoData = {
+                    id: Date.now(),
+                    text: text,
+                    description: descriptionInput.value.trim(),
+                    status: 'open',
+                    createdAt: now.toISOString(),
+                    finishedAt: null,
+                    nextActionDate: nextActionDateInput.value || null,
+                    deadline: deadlineInput.value || null,
+                    category: categoryInput.value,
+                    effort: isNaN(effortValue) ? 1 : Math.max(1, effortValue),
+                    order: isNaN(orderValue) ? Math.floor(maxOrder) + 1 : orderValue
+                };
+
+                if (!newTodoData.nextActionDate) {
+                    const nextActionDefault = new Date(now);
+                    nextActionDefault.setDate(now.getDate() + 3);
+                    newTodoData.nextActionDate = nextActionDefault.toISOString().split('T')[0];
+                }
+
+                todos.push(newTodoData);
+            }
+            cancelEdit();
+            saveToLocalStorage();
+            renderTodos();
+        }
+
+        function startEdit(id) {
+            const todo = todos.find(t => t.id === id);
+            if (!todo) return;
+            editingId = id;
+            if (![...selectedIds].includes(id)) {
+                 selectedIds.clear();
+                 selectedIds.add(id);
+            }
+            todoText.value = todo.text;
+            descriptionInput.value = todo.description || '';
+            nextActionDateInput.value = formatDateISO(todo.nextActionDate);
+            deadlineInput.value = formatDateISO(todo.deadline);
+            categoryInput.value = todo.category || 'Misc';
+            effortInput.value = todo.effort;
+            orderInput.value = todo.order;
+            addButton.textContent = 'Update Task';
+            addForm.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            renderTodos();
+        }
+
+        function cancelEdit() {
+            editingId = null;
+            selectedIds.clear();
+            addForm.reset();
+            orderInput.placeholder = "Auto";
+            addButton.textContent = 'Add Task';
+            renderTodos();
+        }
+
+        function setTaskStatus(id, newStatus) {
+            todos = todos.map(todo => {
+                if (todo.id === id) {
+                    const wasOpen = todo.status === 'open';
+                    const isOpening = newStatus === 'open';
+                    return {
+                        ...todo,
+                        status: newStatus,
+                        finishedAt: wasOpen && !isOpening ? new Date().toISOString() : (isOpening ? null : todo.finishedAt)
+                    };
+                }
+                return todo;
+            });
+            saveToLocalStorage();
+            renderTodos();
+        }
+        
+        function stopTask(id) { setTaskStatus(id, 'stopped'); }
+        function toggleStatus(id) {
+            const todo = todos.find(t => t.id === id);
+            if (todo) {
+                setTaskStatus(id, todo.status === 'open' ? 'completed' : 'open');
+            }
+        }
+        
+        function recalculateOrder() {
+            const visibleTodos = getFilteredAndSortedTodos();
+            const orderMap = new Map(visibleTodos.map((todo, index) => [todo.id, index + 1.0]));
+
+            todos = todos.map(todo => {
+                if (orderMap.has(todo.id)) {
+                    return { ...todo, order: orderMap.get(todo.id) };
+                }
+                return todo;
+            });
+
+            saveToLocalStorage();
+            renderTodos();
+        }
+
+        // --- File Handling (CSV & JSON) ---
+        function saveTodosToFile() {
+            if (todos.length === 0) return;
+            const headers = ["id", "status", "createdAt", "finishedAt", "text", "description", "category", "effort", "order", "nextActionDate", "deadline"];
+            
+            const escapeCsvCell = (cell) => {
+                const str = String(cell === null || cell === undefined ? '' : cell).replace(/[\n\r]/g, ' ');
+                return `"${str.replace(/"/g, '""')}"`;
+            };
+
+            const csvRows = [headers.join(',')];
+            todos.forEach(todo => {
+                csvRows.push(headers.map(h => escapeCsvCell(todo[h])).join(','));
+            });
+
+            const blob = new Blob([csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `muninn_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.csv`;
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        function loadTodosFromFile(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    const content = e.target.result;
+                    let loadedData = [];
+                    if (file.name.endsWith('.csv')) {
+                        loadedData = parseCsv(content);
+                    } else if (file.name.endsWith('.json')) {
+                        loadedData = JSON.parse(content);
+                    } else { throw new Error('Unsupported file type'); }
+                    
+                    if (Array.isArray(loadedData)) {
+                        todos = loadedData.map(t => normalizeTodo(t));
+                        cancelEdit();
+                        saveToLocalStorage();
+                        renderTodos();
+                    } else { throw new Error('Data is not an array.'); }
+                } catch (error) { console.error("Error processing file:", error); }
+            };
+            reader.onerror = () => console.error('Error reading file.');
+            reader.readAsText(file);
+            event.target.value = null; // Reset file input
+        }
+        
+        function parseCsv(text) {
+            const lines = text.trim().split('\n');
+            const headers = lines.shift().trim().split(',');
+            return lines.map(line => {
+                const values = line.match(/(".*?"|[^",]+)(?=\s*,|\s*$)/g) || [];
+                return headers.reduce((obj, header, i) => {
+                    let val = (values[i] || '').trim();
+                    if (val.startsWith('"') && val.endsWith('"')) {
+                        val = val.slice(1, -1).replace(/""/g, '"');
+                    }
+                    obj[header] = (val === 'null' || val === '') ? null : val;
+                    return obj;
+                }, {});
+            });
+        }
+
+        // --- Event Listeners ---
+        addButton.addEventListener('click', addOrUpdateTodo);
+        saveButton.addEventListener('click', saveTodosToFile);
+        loadButton.addEventListener('click', () => fileInput.click());
+        fileInput.addEventListener('change', loadTodosFromFile);
+        recalculateOrderButton.addEventListener('click', recalculateOrder);
+
+        filterTextInput.addEventListener('input', (e) => {
+            currentFilterText = e.target.value;
+            renderTodos();
+        });
+        
+        toggleViewButton.addEventListener('click', () => {
+            showAllTasks = !showAllTasks;
+            renderTodos();
+        });
+
+        document.querySelectorAll('thead th[data-sort-key]').forEach(th => {
+            th.addEventListener('click', () => {
+                const key = th.dataset.sortKey;
+                if (currentSortKey === key) {
+                    currentSortDirection = currentSortDirection === 'asc' ? 'desc' : 'asc';
+                } else {
+                    currentSortKey = key;
+                    currentSortDirection = 'asc';
+                }
+                renderTodos();
+            });
+        });
+
+        todoTableBody.addEventListener('click', (e) => {
+            const row = e.target.closest('tr');
+            if (!row || e.target.closest('button')) return;
+            const id = parseInt(row.dataset.id, 10);
+            if (e.ctrlKey || e.metaKey) {
+                selectedIds.has(id) ? selectedIds.delete(id) : selectedIds.add(id);
+            } else {
+                selectedIds.clear();
+                selectedIds.add(id);
+            }
+            renderTodos();
+        });
+
+        addForm.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                addOrUpdateTodo();
+            } else if (e.key === 'Escape') {
+                 cancelEdit();
+            }
+        });
+
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('table, .add-form, #filterControls')) {
+                 if (selectedIds.size > 0 && !editingId) {
+                     selectedIds.clear();
+                     renderTodos();
+                 }
+            }
+        });
+
+        // --- Initial Load ---
+        loadFromLocalStorage();
+        renderTodos();
+    </script>
+</body>
+</html>
+
