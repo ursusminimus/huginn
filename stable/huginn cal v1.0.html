@@ -1,0 +1,594 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Huginn Calendar v1.0</title>
+    <style>
+        :root {
+            /* Huginn Palette */
+            --bg-body: #2A3439;
+            --text-body: #1f1f1f;
+            --row-odd: #DBD7D2;
+            --row-even: #E5E9EB;
+            --header-bg: #2f4f4f;
+            --header-text: #DBD7D2;
+            --accent-teal: #008C82;
+            --accent-hover: #005f5f;
+            --border-color: #5a5a5a;
+            --selection-bg: #a8d8d4;
+            --selection-hover: #88c8c4;
+
+            /* --- v1.0 Muted Category Palette --- */
+            /* Group: Time Off (Green/Olive) */
+            --cat-vacation: #558b2f; /* Muted Olive Green */
+            --cat-overtime: #827717; /* Dark Lime/Mustard */
+            
+            /* Group: Remote/Travel (Cool Blues/Greys) */
+            --cat-trip: #3949ab; /* Muted Indigo */
+            --cat-mobile: #546e7a;     /* Blue Grey (fits theme) */
+
+            /* Group: Health (Red) */
+            --cat-sick: #c62828;     /* Muted Red */
+
+            /* Group: Markers (Purple/Teal) */
+            --cat-holiday: #7b1fa2;  /* Deep Purple */
+            --cat-event: #008C82;    /* Huginn Teal */
+        }
+
+        body {
+            font-family: "Georgia", serif;
+            padding: 20px;
+            background-color: var(--bg-body);
+            color: var(--text-body);
+            margin: 0;
+        }
+
+        h1 { 
+            color: #eceff1; 
+            margin-top: 0; 
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.5); 
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .version-tag {
+            font-size: 0.5em;
+            background: var(--accent-teal);
+            padding: 2px 6px;
+            border-radius: 4px;
+            vertical-align: middle;
+        }
+
+        /* --- Controls --- */
+        .controls {
+            background-color: #37474f; /* Dark card background */
+            padding: 15px;
+            border-radius: 5px;
+            border: 1px solid var(--border-color);
+            margin-bottom: 20px;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            align-items: center;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.4);
+        }
+
+        .controls label { font-weight: bold; color: #cfd8dc; }
+
+        button {
+            padding: 8px 12px;
+            background-color: var(--accent-teal);
+            color: white;
+            border: 1px solid rgba(0,0,0,0.2);
+            border-radius: 4px;
+            cursor: pointer;
+            font-family: "Georgia", serif;
+            font-size: 0.9em;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        button:hover { background-color: var(--accent-hover); transform: translateY(-1px); }
+        button:active { transform: translateY(0); }
+
+        /* Hotkey hint styling */
+        .hk-hint {
+            font-family: monospace;
+            font-size: 0.8em;
+            opacity: 0.7;
+            background: rgba(0,0,0,0.2);
+            padding: 0 4px;
+            border-radius: 3px;
+        }
+
+        /* Category Buttons */
+        .btn-vacation { background-color: var(--cat-vacation); }
+        .btn-vacation:hover { background-color: #33691e; }
+        
+        .btn-overtime { background-color: var(--cat-overtime); }
+        .btn-overtime:hover { background-color: #9e9d24; }
+        
+        .btn-trip { background-color: var(--cat-trip); }
+        .btn-trip:hover { background-color: #283593; }
+        
+        .btn-mobile { background-color: var(--cat-mobile); }
+        .btn-mobile:hover { background-color: #455a64; }
+
+        .btn-sick { background-color: var(--cat-sick); }
+        .btn-sick:hover { background-color: #b71c1c; }
+        
+        .btn-holiday { background-color: var(--cat-holiday); }
+        .btn-holiday:hover { background-color: #6a1b9a; }
+        
+        .btn-event { background-color: var(--cat-event); }
+        .btn-event:hover { background-color: #00695c; }
+        
+        .btn-clear { background-color: #607d8b; }
+        .btn-clear:hover { background-color: #455a64; }
+
+        input[type="number"] {
+            padding: 6px;
+            background: #455a64;
+            color: white;
+            border: 1px solid #78909c;
+            border-radius: 3px;
+            width: 70px;
+            font-family: sans-serif;
+            font-weight: bold;
+        }
+
+        /* --- Table Layout --- */
+        .calendar-wrapper {
+            overflow-x: auto;
+            border: 1px solid var(--border-color);
+            background: var(--bg-body);
+            margin-bottom: 20px;
+            border-radius: 4px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+        }
+
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            min-width: 1200px;
+            table-layout: fixed;
+            user-select: none;
+        }
+
+        th, td {
+            border: 1px solid var(--border-color);
+            text-align: center;
+            height: 34px;
+            font-size: 13px;
+            padding: 0;
+            position: relative; 
+        }
+
+        th { background-color: var(--header-bg); color: var(--header-text); font-weight: normal; letter-spacing: 0.5px; }
+        th.month-label { width: 110px; text-align: left; padding-left: 15px; z-index: 2; position: sticky; left: 0; font-weight: bold; background-color: var(--header-bg); box-shadow: 2px 0 5px rgba(0,0,0,0.2); }
+        th.day-header { width: 2.5%; font-size: 11px; color: #b0bec5; }
+        th.weekend-header { background-color: #1c2529; color: #78909c; }
+
+        tr:nth-child(even) { background-color: var(--row-even); }
+        tr:nth-child(odd) { background-color: var(--row-odd); }
+
+        /* Cell Interaction */
+        td.day-cell { cursor: pointer; transition: background-color 0.1s; }
+        
+        /* HOVER: Bright outline */
+        td.day-cell:hover { 
+            outline: 2px solid #ffffff; 
+            z-index: 20; 
+        }
+        
+        td.empty-cell { background-color: transparent; border: 1px solid #37474f; opacity: 0; pointer-events: none; }
+        td.weekend-cell { background-color: rgba(0,0,0,0.2); font-weight: bold; color: #90a4ae; }
+
+        /* SELECTION: Soft outline */
+        td.selected { 
+            background-color: var(--selection-bg) !important; 
+            color: #004d40 !important;
+            font-weight: bold;
+            outline: 2px solid var(--selection-border); 
+            z-index: 10; 
+        }
+
+        /* Status colors */
+        .status-vacation { background-color: var(--cat-vacation) !important; color: white; }
+        .status-trip { background-color: var(--cat-trip) !important; color: white; }
+        .status-sick { background-color: var(--cat-sick) !important; color: white; }
+        .status-overtime { background-color: var(--cat-overtime) !important; color: white; }
+        .status-holiday { background-color: var(--cat-holiday) !important; color: white; }
+        .status-mobile { background-color: var(--cat-mobile) !important; color: white; }
+        .status-event { background-color: var(--cat-event) !important; color: white; }
+
+        .week-divider { border-right: 2px solid #78909c; }
+
+        /* --- Stats Footer --- */
+        #statsBar {
+            background-color: #37474f;
+            border: 1px solid var(--border-color);
+            border-radius: 5px;
+            padding: 15px;
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+            justify-content: center;
+            color: #eceff1;
+        }
+
+        .stat-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.9em;
+            background: rgba(0,0,0,0.2);
+            padding: 5px 10px;
+            border-radius: 15px;
+        }
+
+        .stat-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+
+        /* Stat colors */
+        .dot-vacation { background-color: var(--cat-vacation); }
+        .dot-trip { background-color: var(--cat-trip); }
+        .dot-sick { background-color: var(--cat-sick); }
+        .dot-overtime { background-color: var(--cat-overtime); }
+        .dot-holiday { background-color: var(--cat-holiday); }
+        .dot-mobile { background-color: var(--cat-mobile); }
+        .dot-event { background-color: var(--cat-event); }
+        .dot-normal { background-color: #78909c; }
+
+    </style>
+</head>
+<body>
+
+    <!-- <h1>Muninn <span class="version-tag">v1.0</span></h1>-->
+
+    <div class="controls">
+        <label>Year: <input type="number" id="yearInput" value="2025"></label>
+        <button onclick="renderCalendar()" title="Refresh Calendar [Enter]">Go</button>
+        <button onclick="autoFillHolidays()" title="Niedersachsen Holidays [Shift+A]">Auto-fill Holidays (NI)</button>
+        
+        <span style="border-right: 1px solid #546e7a; height: 20px; margin: 0 10px;"></span>
+
+        <button onclick="exportData()" title="Save as JSON [Shift+E]">Export</button>
+        <button onclick="document.getElementById('importFile').click()" title="Load JSON">Import</button>
+        <input type="file" id="importFile" style="display:none" onchange="importData(this)" accept=".json">
+    </div>
+
+    <div class="controls">
+        <label>Assign:</label>
+        <button class="btn-vacation" onclick="applyStatus('vacation')">Vacation <span class="hk-hint">V</span></button>
+        <button class="btn-overtime" onclick="applyStatus('overtime')">Overtime <span class="hk-hint">O</span></button>
+        
+        <span style="width:10px"></span>
+        
+        <button class="btn-trip" onclick="applyStatus('trip')">Trip <span class="hk-hint">T</span></button>
+        <button class="btn-mobile" onclick="applyStatus('mobile')">Mobile <span class="hk-hint">M</span></button>
+        
+        <span style="width:10px"></span>
+        
+        <button class="btn-sick" onclick="applyStatus('sick')">Sick <span class="hk-hint">S</span></button>
+        
+        <span style="width:10px"></span>
+        
+        <button class="btn-holiday" onclick="applyStatus('holiday')">Holiday <span class="hk-hint">H</span></button>
+        <button class="btn-event" onclick="applyStatus('event')">Event <span class="hk-hint">E</span></button>
+        
+        <span style="flex-grow:1"></span>
+        
+        <button class="btn-clear" onclick="applyStatus(null)">Clear <span class="hk-hint">C</span></button>
+    </div>
+
+    <div class="calendar-wrapper">
+        <table id="calendarTable">
+            </table>
+    </div>
+
+    <div id="statsBar">
+        </div>
+
+<script>
+    const STORAGE_KEY = 'huginn_calendar_v1';
+    let calendarData = {}; 
+    let isMouseDown = false;
+    
+    const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+    const weekDays = ["M", "T", "W", "T", "F", "S", "S"];
+    const MAX_COLS = 37; 
+
+    document.addEventListener('DOMContentLoaded', () => {
+        loadFromStorage();
+        const storedYear = localStorage.getItem(STORAGE_KEY + '_year');
+        if (storedYear) document.getElementById('yearInput').value = storedYear;
+        renderCalendar();
+        
+        document.addEventListener('mouseup', () => isMouseDown = false);
+        document.addEventListener('keydown', handleHotkeys);
+    });
+
+    // --- Hotkeys ---
+    function handleHotkeys(e) {
+        // Ignore if typing in an input
+        if (e.target.tagName === 'INPUT') {
+            if (e.key === 'Enter') renderCalendar();
+            return;
+        }
+
+        const key = e.key.toLowerCase();
+        
+        // Actions
+        if (e.shiftKey && key === 'e') { e.preventDefault(); exportData(); return; }
+        if (e.shiftKey && key === 'a') { e.preventDefault(); autoFillHolidays(); return; }
+
+        // Categories
+        switch(key) {
+            case 'v': applyStatus('vacation'); break;
+            case 't': applyStatus('trip'); break;
+            case 's': applyStatus('sick'); break;
+            case 'o': applyStatus('overtime'); break;
+            case 'm': applyStatus('mobile'); break;
+            case 'h': applyStatus('holiday'); break;
+            case 'e': applyStatus('event'); break;
+            case 'c': 
+            case 'x':
+            case 'delete':
+            case 'backspace':
+                applyStatus(null); break;
+        }
+    }
+
+    // --- Stats Logic ---
+    function updateStats() {
+        const year = parseInt(document.getElementById('yearInput').value);
+        const stats = {
+            vacation: 0, trip: 0, sick: 0, overtime: 0,
+            holiday: 0, mobile: 0, event: 0, normal: 0
+        };
+
+        for (let m = 0; m < 12; m++) {
+            const daysInMonth = new Date(year, m + 1, 0).getDate();
+            for (let d = 1; d <= daysInMonth; d++) {
+                const dateKey = formatDateKey(year, m, d);
+                const status = calendarData[dateKey];
+                const dateObj = new Date(year, m, d);
+                const dayOfWeek = dateObj.getDay(); // 0=Sun, 6=Sat
+
+                if (status) {
+                    if (stats.hasOwnProperty(status)) stats[status]++;
+                } else {
+                    if (dayOfWeek !== 0 && dayOfWeek !== 6) stats.normal++;
+                }
+            }
+        }
+
+        const bar = document.getElementById('statsBar');
+        bar.innerHTML = `
+            <div class="stat-item"><span class="stat-dot dot-normal"></span> Normal: ${stats.normal}</div>
+            <div class="stat-item"><span class="stat-dot dot-vacation"></span> Vacation: ${stats.vacation}</div>
+            <div class="stat-item"><span class="stat-dot dot-overtime"></span> Overtime: ${stats.overtime}</div>
+            <div class="stat-item"><span class="stat-dot dot-trip"></span> Trip: ${stats.trip}</div>
+            <div class="stat-item"><span class="stat-dot dot-mobile"></span> Mobile: ${stats.mobile}</div>
+            <div class="stat-item"><span class="stat-dot dot-sick"></span> Sick: ${stats.sick}</div>
+            <div class="stat-item"><span class="stat-dot dot-holiday"></span> Holiday: ${stats.holiday}</div>
+            <div class="stat-item"><span class="stat-dot dot-event"></span> Event: ${stats.event}</div>
+        `;
+    }
+
+    // --- Holiday Logic (NI) ---
+    function getEasterSunday(year) {
+        const a = year % 19, b = Math.floor(year / 100), c = year % 100;
+        const d = Math.floor(b / 4), e = b % 4, f = Math.floor((b + 8) / 25);
+        const g = Math.floor((b - f + 1) / 3), h = (19 * a + b - d - g + 15) % 30;
+        const i = Math.floor(c / 4), k = c % 4, l = (32 + 2 * e + 2 * i - h - k) % 7;
+        const m = Math.floor((a + 11 * h + 22 * l) / 451);
+        const month = Math.floor((h + l - 7 * m + 114) / 31) - 1; 
+        const day = ((h + l - 7 * m + 114) % 31) + 1;
+        return new Date(year, month, day);
+    }
+
+    function addDays(date, days) {
+        const result = new Date(date);
+        result.setDate(result.getDate() + days);
+        return result;
+    }
+
+    function getHolidays(year) {
+        const holidays = [];
+        const fmt = (d) => formatDateKey(d.getFullYear(), d.getMonth(), d.getDate());
+        const pushFixed = (m, d) => holidays.push(formatDateKey(year, m, d)); 
+
+        pushFixed(0, 1);   // New Year
+        pushFixed(4, 1);   // Labor Day
+        pushFixed(9, 3);   // Unity Day
+        pushFixed(9, 31);  // Reformation Day (NI)
+        pushFixed(11, 25); // Christmas 1
+        pushFixed(11, 26); // Christmas 2
+
+        const easter = getEasterSunday(year);
+        holidays.push(fmt(addDays(easter, -2))); // Good Friday
+        holidays.push(fmt(addDays(easter, 1)));  // Easter Monday
+        holidays.push(fmt(addDays(easter, 39))); // Ascension
+        holidays.push(fmt(addDays(easter, 50))); // Whit Monday
+
+        return holidays;
+    }
+
+    function autoFillHolidays() {
+        const year = parseInt(document.getElementById('yearInput').value);
+        const holidays = getHolidays(year);
+        let count = 0;
+        holidays.forEach(dateKey => {
+            if (!calendarData[dateKey]) {
+                calendarData[dateKey] = 'holiday';
+                count++;
+            }
+        });
+        if (count > 0) {
+            saveToStorage();
+            renderCalendar();
+            alert(`Marked ${count} public holidays for Niedersachsen.`);
+        } else {
+            alert('Holidays already marked.');
+        }
+    }
+
+    // --- Core Calendar Logic ---
+    function renderCalendar() {
+        const year = parseInt(document.getElementById('yearInput').value);
+        localStorage.setItem(STORAGE_KEY + '_year', year);
+        
+        const table = document.getElementById('calendarTable');
+        table.innerHTML = '';
+
+        // Header
+        const headerRow = document.createElement('tr');
+        const cornerTh = document.createElement('th');
+        cornerTh.className = 'month-label';
+        cornerTh.textContent = "Month";
+        headerRow.appendChild(cornerTh);
+
+        for (let i = 0; i < MAX_COLS; i++) {
+            const th = document.createElement('th');
+            const dayIndex = i % 7; 
+            th.textContent = weekDays[dayIndex];
+            th.className = 'day-header';
+            if (dayIndex >= 5) th.classList.add('weekend-header');
+            if (dayIndex === 6) th.classList.add('week-divider');
+            headerRow.appendChild(th);
+        }
+        table.appendChild(headerRow);
+
+        // Rows
+        months.forEach((monthName, monthIndex) => {
+            const row = document.createElement('tr');
+            const th = document.createElement('th');
+            th.className = 'month-label';
+            th.textContent = monthName;
+            row.appendChild(th);
+
+            const firstDate = new Date(year, monthIndex, 1);
+            let startDayJS = firstDate.getDay(); 
+            let offset = (startDayJS === 0) ? 6 : startDayJS - 1;
+            const daysCount = new Date(year, monthIndex + 1, 0).getDate();
+
+            for (let col = 0; col < MAX_COLS; col++) {
+                const dayNum = col - offset + 1;
+                const cell = document.createElement('td');
+                const isWeekend = (col % 7) >= 5;
+                if (col % 7 === 6) cell.classList.add('week-divider');
+
+                if (dayNum > 0 && dayNum <= daysCount) {
+                    const dateKey = formatDateKey(year, monthIndex, dayNum);
+                    cell.className = 'day-cell';
+                    if (isWeekend) cell.classList.add('weekend-cell');
+                    cell.textContent = dayNum;
+                    cell.dataset.date = dateKey;
+
+                    if (calendarData[dateKey]) {
+                        cell.classList.add('status-' + calendarData[dateKey]);
+                    }
+
+                    cell.addEventListener('mousedown', (e) => {
+                        e.preventDefault();
+                        isMouseDown = true;
+                        toggleSelection(cell);
+                    });
+                    cell.addEventListener('mouseenter', () => {
+                        if (isMouseDown && !cell.classList.contains('selected')) {
+                            cell.classList.add('selected');
+                        }
+                    });
+                } else {
+                    cell.className = 'empty-cell';
+                }
+                row.appendChild(cell);
+            }
+            table.appendChild(row);
+        });
+        updateStats();
+    }
+
+    function toggleSelection(cell) {
+        cell.classList.toggle('selected');
+    }
+
+    function applyStatus(status) {
+        const selectedCells = document.querySelectorAll('.selected');
+        if (selectedCells.length === 0) return;
+
+        selectedCells.forEach(cell => {
+            const dateKey = cell.dataset.date;
+            cell.classList.remove('status-vacation', 'status-trip', 'status-sick', 'status-overtime', 'status-holiday', 'status-mobile', 'status-event');
+            
+            if (status) {
+                calendarData[dateKey] = status;
+                cell.classList.add('status-' + status);
+            } else {
+                delete calendarData[dateKey];
+            }
+            cell.classList.remove('selected');
+        });
+        saveToStorage();
+        updateStats();
+    }
+
+    function formatDateKey(y, m, d) {
+        const mm = String(m + 1).padStart(2, '0');
+        const dd = String(d).padStart(2, '0');
+        return `${y}-${mm}-${dd}`;
+    }
+
+    function saveToStorage() {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(calendarData));
+    }
+
+    function loadFromStorage() {
+        const data = localStorage.getItem(STORAGE_KEY);
+        if (data) {
+            try { calendarData = JSON.parse(data); } 
+            catch (e) { calendarData = {}; }
+        }
+    }
+
+    function exportData() {
+        const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(calendarData, null, 2));
+        const downloadAnchorNode = document.createElement('a');
+        downloadAnchorNode.setAttribute("href", dataStr);
+        downloadAnchorNode.setAttribute("download", "muninn_calendar.json");
+        document.body.appendChild(downloadAnchorNode);
+        downloadAnchorNode.click();
+        downloadAnchorNode.remove();
+    }
+
+    function importData(input) {
+        const file = input.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            try {
+                const imported = JSON.parse(e.target.result);
+                if (typeof imported === 'object') {
+                    calendarData = imported;
+                    saveToStorage();
+                    renderCalendar();
+                    alert('Calendar loaded successfully.');
+                }
+            } catch (err) { alert('Invalid JSON file.'); }
+        };
+        reader.readAsText(file);
+        input.value = '';
+    }
+</script>
+
+</body>
+</html>
