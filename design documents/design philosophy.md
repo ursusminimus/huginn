@@ -1,9 +1,11 @@
-# Huginn Color Scheme
+
+
+## Huginn Color Scheme
 
 Overall, we use warm, muted colors (earth tones) with a dark color scheme (dark background, light text).
 See also https://en.wikipedia.org/wiki/Earth_tone.
 
-## Basic Color Palette
+### Basic Color Palette
 The main color pallette is:
 1. Pale Gunmetal, #2C3639
 2. Pale Dark Slate Grey, #3F4E4F
@@ -14,7 +16,7 @@ The main color pallette is:
 Darker colors are used for background elements, lighter colors for text and highlights.
 More colors can be added as needed while maintaining the overall theme and "feel".
 
-## Signal Colors
+### Signal Colors
 In addition, for signalling a positive or negative valence, we use a traffic-light-inspired green to red palette.
 
 The basic 3 color palette for signals is:
