@@ -1,0 +1,6 @@
+{
+  "artifactType": "ARTIFACT_TYPE_OTHER",
+  "summary": "Revised shared data model schema for Huginn v2.0. Merged milestones and calendar events into unified `events` collection, timekeeping linked strictly to tasks only, removed start/end milestone type distinction (dependencies handle topology).",
+  "updatedAt": "2026-03-24T23:50:56.135066Z",
+  "version": "1"
+}

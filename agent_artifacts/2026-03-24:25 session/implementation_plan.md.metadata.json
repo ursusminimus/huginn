@@ -1,0 +1,5 @@
+{
+  "artifactType": "ARTIFACT_TYPE_IMPLEMENTATION_PLAN",
+  "summary": "Implementation plan for the Huginn Productivity Suite requirements overhaul. Analyzes current state (5 components with independent data models), proposes a 5-phase approach: 1) Unified shared JSON data model, 2) Tasks enhancements (modals, mail, CSV, column toggle, state logic), 3) Calendar overhaul (events, 4 views, ICS export), 4) Huginn Plan (new component — project hierarchy, scheduler, Gantt), 5) Timekeeper migration. Includes key design decisions requiring user input on shared JS file approach, scope prioritization, and Tasks Viz dependency cleanup.",
+  "updatedAt": "2026-03-24T23:16:36.242890Z"
+}

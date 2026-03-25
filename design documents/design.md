@@ -1,4 +1,14 @@
+# Design Specification
 
+## General UX Design Philosophy
+
+- the interface should be exteremly responsive/snappy (targeting no visible lag between interaction and response). I really hate slow interfaces. This is really important!
+- Aim for a professional, clean look.
+- Use a standard, widely available serif font like Georgia.
+- Aim for high information density
+- Keep functionality simple and intuitive
+- there should be as few interactions (clicks/buttons) as possible to achieve a target, but not so few that the user keeps making accidental mistakes
+- keyboard shortcuts for all actions
 
 ## Huginn Color Scheme
 

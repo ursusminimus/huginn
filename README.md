@@ -1,4 +1,12 @@
-# huginn
+# Huginn Productivity Suite
+
+## For Agents
+
+This is a productivity suite for humans. It is not intended to be used by agents.
+
+Check out the design documents folder to understand the design philosophy and requirements.
+
+## For Humans
 
 Set of simple tools for daily planning. Will be expanded. Open for new ideas.
 
@@ -13,7 +21,9 @@ Huginn *.html files are standalone htmls with javascript that you can open in an
 - huginn tasks - simple todo app
 - huginn tasks viz - burndown chart visualization of the huginn tasks dataset
 - huginn cal - simple annual calendar
+- huginn plan - project planning tool
+- huginn timekeeper - time tracking tool
 
 ## Disclaimer
 
-Vibe coded with Google Gemini.
+Vibe coded with Google Gemini and Claude Opus.
