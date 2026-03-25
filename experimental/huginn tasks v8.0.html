@@ -1,0 +1,1031 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Huginn Tasks v8.0</title>
+    <style>
+        /* === Base === */
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: "Georgia", serif;
+            padding: 15px;
+            font-size: 0.9em;
+            background-color: #2A3439;
+            color: #1f1f1f;
+        }
+
+        /* === Table === */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+            table-layout: fixed;
+        }
+        th, td {
+            border: 1px solid #5a5a5a;
+            padding: 8px;
+            text-align: left;
+            vertical-align: middle;
+            word-wrap: break-word;
+        }
+        th {
+            background-color: #2f4f4f;
+            color: #DBD7D2;
+            cursor: pointer;
+            position: relative;
+            white-space: nowrap;
+        }
+        th.sort-asc::after, th.sort-desc::after {
+            position: absolute; right: 8px; top: 50%;
+            transform: translateY(-50%); font-size: 0.8em; color: #a0d0d0;
+        }
+        th.sort-asc::after { content: ' ▲'; }
+        th.sort-desc::after { content: ' ▼'; }
+
+        /* Column widths — full mode (9 columns) */
+        .col-actions { width: 8%; }
+        .col-order   { width: 5%; }
+        .col-text    { width: 22%; }
+        .col-project { width: 10%; }
+        .col-effort  { width: 4%; }
+        .col-created { width: 8%; }
+        .col-next    { width: 8%; }
+        .col-deadline{ width: 8%; }
+        .col-desc    { width: 27%; }
+
+        /* Reduced mode hides effort, created — keeps order, desc */
+        table.reduced-columns .col-effort,
+        table.reduced-columns .col-created { display: none; }
+        table.reduced-columns .col-text    { width: 22%; }
+        table.reduced-columns .col-project { width: 12%; }
+        table.reduced-columns .col-order   { width: 5%; }
+        table.reduced-columns .col-next    { width: 10%; }
+        table.reduced-columns .col-deadline{ width: 10%; }
+        table.reduced-columns .col-desc    { width: 28%; }
+        table.reduced-columns .col-actions { width: 10%; }
+
+        /* Row colors */
+        tr:nth-child(even) { background-color: #E5E9EB; }
+        tr:nth-child(odd) { background-color: #DBD7D2; }
+        tr:hover { background-color: #008C82; color: #fff; }
+        tr:hover td { border-color: #005f5f; }
+
+        /* Status row styles */
+        tr.status-done td { text-decoration: line-through; color: #555 !important; background-color: #d0d0d0 !important; }
+        tr.status-done:hover td { background-color: #b0b0b0 !important; color: #333 !important; }
+        tr.status-stopped td { text-decoration: line-through; color: #776666 !important; background-color: #f0e0e0 !important; }
+        tr.status-stopped:hover td { background-color: #e0d0d0 !important; color: #333 !important; }
+        tr.status-done td:first-child button, tr.status-stopped td:first-child button { color: #444; text-decoration: none; }
+        tr.status-done td:first-child button:hover, tr.status-stopped td:first-child button:hover { color: #005f5f; }
+
+        /* Running late indicator — subtle left border */
+        tr.running-late { border-left: 3px solid #a00; }
+
+        /* Selected row */
+        tr.selected-row td { background-color: #a8d8d4 !important; color: #1f1f1f !important; }
+        tr.selected-row:hover td { background-color: #88c8c4 !important; }
+
+        /* Date highlighting */
+        td.date-past { background-color: #ffdddd !important; color: #a00 !important; font-weight: bold; }
+        td.date-today { background-color: #fff0dd !important; color: #a60 !important; font-weight: bold; }
+        tr.status-done td.date-past, tr.status-done td.date-today,
+        tr.status-stopped td.date-past, tr.status-stopped td.date-today {
+            background-color: inherit; color: inherit; text-decoration: line-through;
+        }
+
+        /* === Controls === */
+        .toolbar {
+            display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
+            background-color: #DBD7D2; border: 1px solid #5a5a5a;
+            padding: 10px; border-radius: 5px;
+        }
+        .toolbar + .toolbar { margin-top: 8px; }
+        .toolbar input[type="text"] {
+            flex-grow: 1; min-width: 150px; padding: 6px;
+            border: 1px solid #888; border-radius: 3px; font-family: inherit;
+        }
+        .toolbar-spacer { flex-grow: 1; }
+
+        button {
+            padding: 8px 12px; background-color: #008C82; color: white;
+            border: none; border-radius: 4px; cursor: pointer;
+            transition: background-color 0.2s ease; font-family: inherit; font-size: 0.85em;
+        }
+        button:hover { background-color: #005f5f; }
+        button.active-mode { background-color: #d66; border: 1px solid #a44; }
+        button.active-mode:hover { background-color: #b44; }
+        button.secondary { background-color: #888; }
+        button.secondary:hover { background-color: #666; }
+
+        /* Action buttons in cells */
+        td.cell-actions { text-align: center; }
+        td.cell-actions button {
+            background: none; border: none; font-size: 1.3em; cursor: pointer;
+            padding: 2px; margin: 0 2px; color: #2f4f4f;
+            vertical-align: middle; line-height: 1;
+        }
+        td.cell-actions button:hover { color: #008C82; }
+
+        td.cell-desc { font-size: 0.85em; color: #333; }
+
+        /* === Summary === */
+        #summaryStats {
+            margin-top: 20px; padding: 10px;
+            background-color: #DBD7D2; border: 1px solid #5a5a5a;
+            border-radius: 5px; text-align: center; font-weight: bold;
+        }
+
+        /* === Modal Overlay === */
+        .modal-overlay {
+            display: none; position: fixed; inset: 0;
+            background: rgba(0,0,0,0.5); z-index: 1000;
+            justify-content: center; align-items: center;
+        }
+        .modal-overlay.active { display: flex; }
+        .modal {
+            background: #DBD7D2; border: 2px solid #2f4f4f;
+            border-radius: 8px; padding: 24px; min-width: 480px; max-width: 600px;
+            width: 90%; max-height: 90vh; overflow-y: auto;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+        }
+        .modal h2 {
+            margin-bottom: 16px; color: #2f4f4f; font-size: 1.2em;
+            border-bottom: 2px solid #2f4f4f; padding-bottom: 8px;
+        }
+        .modal-grid {
+            display: grid; grid-template-columns: auto 1fr;
+            gap: 10px 15px; align-items: center;
+        }
+        .modal-grid.wide { grid-template-columns: auto 1fr auto 1fr; }
+        .modal-grid label { font-weight: bold; text-align: right; font-size: 0.9em; }
+        .modal-grid input, .modal-grid select, .modal-grid textarea {
+            width: 100%; padding: 6px; border: 1px solid #888;
+            border-radius: 3px; font-family: inherit; font-size: 0.9em;
+        }
+        .modal-grid textarea { resize: vertical; min-height: 60px; }
+        .modal-grid .span-full { grid-column: 1 / -1; }
+        .modal-actions {
+            margin-top: 16px; display: flex; justify-content: flex-end; gap: 10px;
+        }
+
+        /* Hidden file input */
+        #fileInput { display: none; }
+    </style>
+</head>
+<body>
+
+    <!-- Top toolbar: quick add & actions -->
+    <div class="toolbar" id="quickAddBar">
+        <input type="text" id="quickAddText" placeholder="Quick add: type task name and press Enter...">
+        <button id="addTaskBtn" title="Add task via modal with all fields">+ Add Task</button>
+        <button id="importBtn" title="Import data from .json file">Import JSON</button>
+        <button id="exportJsonBtn" title="Export all data to .json">Export JSON</button>
+        <button id="exportCsvBtn" title="Export current view to .csv">Export CSV</button>
+        <input type="file" id="fileInput" accept=".json">
+    </div>
+
+    <!-- Filter toolbar -->
+    <div class="toolbar" id="filterBar">
+        <input type="text" id="filterText" placeholder="Filter tasks...">
+        <button id="toggleViewBtn" title="Toggle between showing active tasks and all tasks">Show Active</button>
+        <button id="overdueBtn" title="Show only overdue and due tasks">Overdue/Due</button>
+        <button id="toggleColumnsBtn" title="Toggle between reduced and full column set">Reduced View</button>
+        <button id="recalcOrderBtn" title="Re-number order of visible tasks sequentially">Recalc Order</button>
+        <button id="bulkEditBtn" title="Toggle multi-select mode (or press E with selections)">Multi-Edit</button>
+    </div>
+
+    <!-- Main table -->
+    <table id="taskTable">
+        <thead>
+            <tr>
+                <th class="col-actions" data-sort-key="status">Actions</th>
+                <th class="col-order" data-sort-key="order">Order</th>
+                <th class="col-text" data-sort-key="text">Task</th>
+                <th class="col-project" data-sort-key="projectId">Project</th>
+                <th class="col-effort" data-sort-key="effort">Eff</th>
+                <th class="col-created" data-sort-key="createdAt">Created</th>
+                <th class="col-next" data-sort-key="nextActionDate">Next Action</th>
+                <th class="col-deadline" data-sort-key="deadline">Deadline</th>
+                <th class="col-desc" data-sort-key="description">Description</th>
+            </tr>
+        </thead>
+        <tbody id="taskTableBody"></tbody>
+    </table>
+
+    <div id="summaryStats"></div>
+
+    <!-- Edit Modal (single task) -->
+    <div class="modal-overlay" id="editModalOverlay">
+        <div class="modal">
+            <h2 id="editModalTitle">Edit Task</h2>
+            <div class="modal-grid wide">
+                <label for="editText">Task:</label>
+                <input type="text" id="editText" style="grid-column: 2 / 5;">
+
+                <label for="editDesc">Description:</label>
+                <textarea id="editDesc" style="grid-column: 2 / 5;"></textarea>
+
+                <label for="editProject">Project:</label>
+                <select id="editProject"></select>
+
+                <label for="editStatus">Status:</label>
+                <select id="editStatus">
+                    <option value="new">New</option>
+                    <option value="started">Started</option>
+                    <option value="done">Done</option>
+                    <option value="stopped">Stopped</option>
+                </select>
+
+                <label for="editEffort">Effort:</label>
+                <input type="number" id="editEffort" min="1" value="1">
+
+                <label for="editOrder">Order:</label>
+                <input type="number" id="editOrder" step="any">
+
+                <label for="editNextAction">Next Action:</label>
+                <input type="date" id="editNextAction">
+
+                <label for="editDeadline">Deadline:</label>
+                <input type="date" id="editDeadline">
+
+                <label for="editEstDuration">Est. Days:</label>
+                <input type="number" id="editEstDuration" min="1" value="1">
+
+                <label for="editStartDate">Start Date:</label>
+                <input type="date" id="editStartDate">
+
+                <label for="editStartDateType">Start Type:</label>
+                <select id="editStartDateType">
+                    <option value="flexible">Flexible</option>
+                    <option value="fixed">Fixed</option>
+                    <option value="target">Target</option>
+                </select>
+
+                <label for="editEndDate">End Date:</label>
+                <input type="date" id="editEndDate">
+
+                <label for="editEndDateType">End Type:</label>
+                <select id="editEndDateType">
+                    <option value="flexible">Flexible</option>
+                    <option value="fixed">Fixed</option>
+                    <option value="target">Target</option>
+                </select>
+            </div>
+            <div class="modal-actions">
+                <button class="secondary" id="editCancelBtn">Cancel</button>
+                <button id="editSaveBtn">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bulk Edit Modal -->
+    <div class="modal-overlay" id="bulkModalOverlay">
+        <div class="modal">
+            <h2 id="bulkModalTitle">Bulk Edit Tasks</h2>
+            <p style="margin-bottom:12px; font-size:0.9em; color:#555;">All fields will be applied to selected tasks. Clear a date field to remove it from all selected tasks.</p>
+            <div class="modal-grid">
+                <label for="bulkProject">Project:</label>
+                <select id="bulkProject"><option value="">— No change —</option></select>
+
+                <label for="bulkNextAction">Next Action:</label>
+                <input type="date" id="bulkNextAction">
+
+                <label for="bulkDeadline">Deadline:</label>
+                <input type="date" id="bulkDeadline">
+
+                <label for="bulkEffort">Effort:</label>
+                <input type="number" id="bulkEffort" min="1" placeholder="No change">
+
+                <label for="bulkEstDuration">Est. Days:</label>
+                <input type="number" id="bulkEstDuration" min="1" placeholder="No change">
+            </div>
+            <div class="modal-actions">
+                <button class="secondary" id="bulkCancelBtn">Cancel</button>
+                <button id="bulkApplyBtn">Apply to Selected</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="huginn_data.js"></script>
+    <script>
+        // ============================
+        // Huginn Tasks v8.0
+        // ============================
+
+        // --- Application State ---
+        let data = null;       // Full HuginnData structure
+        let editingId = null;
+        let selectedIds = new Set();
+        let isMultiEditMode = false;
+        let currentSortKey = 'order';
+        let currentSortDirection = 'asc';
+        let currentFilterText = '';
+        let showAllTasks = false;
+        let showOverdueOnly = false;
+        let reducedColumns = false;
+        let todayStr = '';
+
+        // --- DOM refs ---
+        const taskTableBody = document.getElementById('taskTableBody');
+        const taskTable = document.getElementById('taskTable');
+        const summaryStats = document.getElementById('summaryStats');
+        const filterTextInput = document.getElementById('filterText');
+        const quickAddText = document.getElementById('quickAddText');
+        const fileInput = document.getElementById('fileInput');
+
+        const toggleViewBtn = document.getElementById('toggleViewBtn');
+        const overdueBtn = document.getElementById('overdueBtn');
+        const toggleColumnsBtn = document.getElementById('toggleColumnsBtn');
+        const bulkEditBtn = document.getElementById('bulkEditBtn');
+
+        // Edit modal refs
+        const editModalOverlay = document.getElementById('editModalOverlay');
+        const editModalTitle = document.getElementById('editModalTitle');
+        const editText = document.getElementById('editText');
+        const editDesc = document.getElementById('editDesc');
+        const editProject = document.getElementById('editProject');
+        const editStatus = document.getElementById('editStatus');
+        const editEffort = document.getElementById('editEffort');
+        const editOrder = document.getElementById('editOrder');
+        const editNextAction = document.getElementById('editNextAction');
+        const editDeadline = document.getElementById('editDeadline');
+        const editEstDuration = document.getElementById('editEstDuration');
+        const editStartDate = document.getElementById('editStartDate');
+        const editStartDateType = document.getElementById('editStartDateType');
+        const editEndDate = document.getElementById('editEndDate');
+        const editEndDateType = document.getElementById('editEndDateType');
+
+        // Bulk modal refs
+        const bulkModalOverlay = document.getElementById('bulkModalOverlay');
+        const bulkProject = document.getElementById('bulkProject');
+        const bulkNextAction = document.getElementById('bulkNextAction');
+        const bulkDeadline = document.getElementById('bulkDeadline');
+        const bulkEffort = document.getElementById('bulkEffort');
+        const bulkEstDuration = document.getElementById('bulkEstDuration');
+
+        // =====================================
+        // DATA LOADING
+        // =====================================
+
+        function initializeData() {
+            // Try loading from new shared storage first
+            data = HuginnData.loadFromLocalStorage();
+
+            // If empty, try legacy migration
+            if (data.tasks.length === 0 && data.projects.length === 0) {
+                data = HuginnData.migrateAllLegacyData();
+            }
+
+            // Ensure Personal Tasks project exists
+            const { project: personal, newEntities } = HuginnData.ensurePersonalProject(data);
+            if (newEntities) {
+                data.projects.push(newEntities.project);
+                data.events.push(newEntities.startEvent, newEntities.endEvent);
+                data.tasks.push(newEntities.defaultTask);
+                data.dependencies.push(...newEntities.dependencies);
+                saveData();
+            }
+        }
+
+        function saveData() {
+            HuginnData.saveToLocalStorage(data);
+        }
+
+        // =====================================
+        // PROJECT HELPERS
+        // =====================================
+
+        function getProjectName(projectId) {
+            if (projectId == null) return 'Personal Tasks';
+            return HuginnData.getProjectPath(projectId, data.projects) || 'Unknown';
+        }
+
+        function populateProjectDropdown(selectEl, includeNoChange) {
+            selectEl.innerHTML = '';
+            if (includeNoChange) {
+                const opt = document.createElement('option');
+                opt.value = ''; opt.textContent = '— No change —';
+                selectEl.appendChild(opt);
+            }
+            // "Personal Tasks" = null projectId
+            const personalOpt = document.createElement('option');
+            personalOpt.value = 'null'; personalOpt.textContent = 'Personal Tasks';
+            selectEl.appendChild(personalOpt);
+
+            data.projects.forEach(p => {
+                if (p.name === HuginnData.PERSONAL_PROJECT_NAME && p.parentId === null) return;
+                const opt = document.createElement('option');
+                opt.value = String(p.id);
+                opt.textContent = HuginnData.getProjectPath(p.id, data.projects);
+                selectEl.appendChild(opt);
+            });
+        }
+
+        // =====================================
+        // FILTERING & SORTING
+        // =====================================
+
+        function getFilteredAndSortedTasks() {
+            todayStr = HuginnData.getTodayDateString();
+
+            let filtered = data.tasks.slice();
+
+            // Active/all filter — 'new' and 'started' are active
+            if (!showAllTasks) {
+                filtered = filtered.filter(t => t.status === 'new' || t.status === 'started');
+            }
+
+            // Overdue/due filter
+            if (showOverdueOnly) {
+                filtered = filtered.filter(t => {
+                    if (t.status === 'done' || t.status === 'stopped') return false;
+                    const nad = t.nextActionDate;
+                    const dl = t.deadline;
+                    return (nad && nad <= todayStr) || (dl && dl <= todayStr) || HuginnData.isRunningLate(t);
+                });
+            }
+
+            // Text filter
+            const lowerFilter = currentFilterText.toLowerCase().trim();
+            if (lowerFilter) {
+                filtered = filtered.filter(t => {
+                    const projectName = getProjectName(t.projectId).toLowerCase();
+                    return t.text.toLowerCase().includes(lowerFilter)
+                        || t.description.toLowerCase().includes(lowerFilter)
+                        || projectName.includes(lowerFilter)
+                        || String(t.status).includes(lowerFilter);
+                });
+            }
+
+            // Sort
+            filtered.sort((a, b) => {
+                let valA, valB;
+                if (currentSortKey === 'projectId') {
+                    valA = getProjectName(a.projectId);
+                    valB = getProjectName(b.projectId);
+                } else {
+                    valA = a[currentSortKey];
+                    valB = b[currentSortKey];
+                }
+
+                const isANull = valA === null || valA === '' || valA === undefined;
+                const isBNull = valB === null || valB === '' || valB === undefined;
+                if (isANull && isBNull) return 0;
+                if (isANull) return 1;
+                if (isBNull) return -1;
+
+                let cmp = 0;
+                if (typeof valA === 'string') cmp = valA.localeCompare(valB);
+                else if (typeof valA === 'number') cmp = valA - valB;
+                return currentSortDirection === 'asc' ? cmp : -cmp;
+            });
+
+            return filtered;
+        }
+
+        // =====================================
+        // RENDERING
+        // =====================================
+
+        function render() {
+            todayStr = HuginnData.getTodayDateString();
+            taskTableBody.innerHTML = '';
+            const tasks = getFilteredAndSortedTasks();
+
+            // Update button states
+            bulkEditBtn.classList.toggle('active-mode', isMultiEditMode);
+            toggleViewBtn.textContent = showAllTasks ? 'Show Active' : `Show All (${data.tasks.length})`;
+            overdueBtn.classList.toggle('active-mode', showOverdueOnly);
+            toggleColumnsBtn.textContent = reducedColumns ? 'Full View' : 'Reduced View';
+            taskTable.classList.toggle('reduced-columns', reducedColumns);
+
+            // Sort indicators
+            document.querySelectorAll('thead th[data-sort-key]').forEach(th => {
+                th.classList.remove('sort-asc', 'sort-desc');
+                if (th.dataset.sortKey === currentSortKey) {
+                    th.classList.add(currentSortDirection === 'asc' ? 'sort-asc' : 'sort-desc');
+                }
+            });
+
+            tasks.forEach(task => {
+                const tr = document.createElement('tr');
+                tr.dataset.id = task.id;
+
+                // Row classes
+                if (task.status === 'done') tr.classList.add('status-done');
+                else if (task.status === 'stopped') tr.classList.add('status-stopped');
+                if (selectedIds.has(task.id)) tr.classList.add('selected-row');
+                if (HuginnData.isRunningLate(task)) tr.classList.add('running-late');
+
+                // Actions column
+                const tdAct = document.createElement('td');
+                tdAct.className = 'cell-actions col-actions';
+
+                // Done button — mark as done from any active state
+                if (task.status === 'new' || task.status === 'started') {
+                    const doneBtn = document.createElement('button');
+                    doneBtn.textContent = '✅'; doneBtn.title = 'Mark as done';
+                    doneBtn.onclick = (e) => { e.stopPropagation(); setStatus(task.id, 'done'); };
+                    tdAct.appendChild(doneBtn);
+                } else {
+                    const reopenBtn = document.createElement('button');
+                    reopenBtn.textContent = '🔄'; reopenBtn.title = 'Re-open task';
+                    reopenBtn.onclick = (e) => { e.stopPropagation(); setStatus(task.id, 'new'); };
+                    tdAct.appendChild(reopenBtn);
+                }
+
+                // Edit button
+                const editBtn = document.createElement('button');
+                editBtn.textContent = '✏️'; editBtn.title = 'Edit task';
+                editBtn.onclick = (e) => { e.stopPropagation(); openEditModal(task.id); };
+                tdAct.appendChild(editBtn);
+
+                // Mail button
+                const mailBtn = document.createElement('button');
+                mailBtn.textContent = '✉️'; mailBtn.title = 'Send task via email';
+                mailBtn.onclick = (e) => { e.stopPropagation(); sendMail(task); };
+                tdAct.appendChild(mailBtn);
+
+                // Stop button (only for active tasks)
+                if (task.status === 'new' || task.status === 'started') {
+                    const stopBtn = document.createElement('button');
+                    stopBtn.textContent = '🗑️'; stopBtn.title = 'Stop task';
+                    stopBtn.onclick = (e) => { e.stopPropagation(); setStatus(task.id, 'stopped'); };
+                    tdAct.appendChild(stopBtn);
+                }
+                tr.appendChild(tdAct);
+
+                // Order
+                const tdOrder = document.createElement('td');
+                tdOrder.className = 'col-order';
+                tdOrder.textContent = task.order.toFixed(2);
+                tr.appendChild(tdOrder);
+
+                // Task text
+                const tdText = document.createElement('td');
+                tdText.className = 'col-text';
+                tdText.textContent = task.text;
+                tr.appendChild(tdText);
+
+                // Project
+                const tdProj = document.createElement('td');
+                tdProj.className = 'col-project';
+                tdProj.textContent = getProjectName(task.projectId);
+                tdProj.style.fontSize = '0.85em';
+                tr.appendChild(tdProj);
+
+                // Effort
+                const tdEff = document.createElement('td');
+                tdEff.className = 'col-effort';
+                tdEff.textContent = task.effort;
+                tr.appendChild(tdEff);
+
+                // Created
+                const tdCreated = document.createElement('td');
+                tdCreated.className = 'col-created';
+                tdCreated.textContent = HuginnData.formatDateISO(task.createdAt);
+                tr.appendChild(tdCreated);
+
+                // Next Action / Deadline with date highlighting
+                ['nextActionDate', 'deadline'].forEach(key => {
+                    const td = document.createElement('td');
+                    td.className = key === 'nextActionDate' ? 'col-next' : 'col-deadline';
+                    const dateVal = task[key] || '';
+                    td.textContent = dateVal;
+                    if (dateVal && (task.status === 'new' || task.status === 'started')) {
+                        if (dateVal < todayStr) td.classList.add('date-past');
+                        else if (dateVal === todayStr) td.classList.add('date-today');
+                    }
+                    tr.appendChild(td);
+                });
+
+                // Description
+                const tdDesc = document.createElement('td');
+                tdDesc.className = 'col-desc cell-desc';
+                tdDesc.textContent = task.description || '';
+                tr.appendChild(tdDesc);
+
+                taskTableBody.appendChild(tr);
+            });
+
+            updateSummary();
+        }
+
+        function updateSummary() {
+            const newCount = data.tasks.filter(t => t.status === 'new').length;
+            const startedCount = data.tasks.filter(t => t.status === 'started').length;
+            const doneCount = data.tasks.filter(t => t.status === 'done').length;
+            const stoppedCount = data.tasks.filter(t => t.status === 'stopped').length;
+            const lateCount = data.tasks.filter(t => HuginnData.isRunningLate(t)).length;
+            let text = `Tasks: New ${newCount} | Started ${startedCount} | Done ${doneCount} | Stopped ${stoppedCount}`;
+            if (lateCount > 0) text += ` | Late ${lateCount}`;
+            summaryStats.textContent = text;
+        }
+
+        // =====================================
+        // STATUS MANAGEMENT
+        // =====================================
+
+        function setStatus(taskId, newStatus) {
+            const task = data.tasks.find(t => t.id === taskId);
+            if (!task) return;
+            HuginnData.setTaskStatus(task, newStatus);
+            saveData();
+            render();
+        }
+
+        // =====================================
+        // QUICK ADD
+        // =====================================
+
+        function quickAddTask() {
+            const text = quickAddText.value.trim();
+            if (!text) return;
+
+            const activeTasks = data.tasks.filter(t => t.status === 'new' || t.status === 'started');
+            const maxOrder = activeTasks.length > 0 ? Math.max(...activeTasks.map(t => t.order)) : 0;
+
+            const now = new Date();
+            const nextAction = new Date(now);
+            nextAction.setDate(now.getDate() + 3);
+
+            const task = HuginnData.normalizeTask({
+                id: HuginnData.generateId(),
+                text: text,
+                status: 'new',
+                createdAt: now.toISOString(),
+                order: Math.floor(maxOrder) + 1,
+                nextActionDate: nextAction.toISOString().split('T')[0]
+            });
+
+            data.tasks.push(task);
+            quickAddText.value = '';
+            saveData();
+            render();
+        }
+
+        // =====================================
+        // EDIT MODAL
+        // =====================================
+
+        function openEditModal(taskId) {
+            const task = taskId ? data.tasks.find(t => t.id === taskId) : null;
+            editingId = taskId || null;
+
+            editModalTitle.textContent = task ? 'Edit Task' : 'New Task';
+            populateProjectDropdown(editProject, false);
+
+            if (task) {
+                editText.value = task.text;
+                editDesc.value = task.description || '';
+                editProject.value = task.projectId != null ? String(task.projectId) : 'null';
+                editStatus.value = task.status;
+                editEffort.value = task.effort;
+                editOrder.value = task.order;
+                editNextAction.value = task.nextActionDate || '';
+                editDeadline.value = task.deadline || '';
+                editEstDuration.value = task.estimatedDurationDays || 1;
+                editStartDate.value = task.startDate || '';
+                editStartDateType.value = task.startDateType || 'flexible';
+                editEndDate.value = task.endDate || '';
+                editEndDateType.value = task.endDateType || 'flexible';
+            } else {
+                // New task defaults
+                editText.value = '';
+                editDesc.value = '';
+                editProject.value = 'null';
+                editStatus.value = 'new';
+                editEffort.value = 1;
+                const activeTasks = data.tasks.filter(t => t.status === 'new' || t.status === 'started');
+                const maxOrder = activeTasks.length > 0 ? Math.max(...activeTasks.map(t => t.order)) : 0;
+                editOrder.value = Math.floor(maxOrder) + 1;
+                const now = new Date();
+                const next = new Date(now); next.setDate(now.getDate() + 3);
+                editNextAction.value = next.toISOString().split('T')[0];
+                editDeadline.value = '';
+                editEstDuration.value = 1;
+                editStartDate.value = '';
+                editStartDateType.value = 'flexible';
+                editEndDate.value = '';
+                editEndDateType.value = 'flexible';
+            }
+
+            editModalOverlay.classList.add('active');
+            editText.focus();
+        }
+
+        function closeEditModal() {
+            editModalOverlay.classList.remove('active');
+            editingId = null;
+        }
+
+        function saveEditModal() {
+            const text = editText.value.trim();
+            if (!text) { editText.focus(); return; }
+
+            const projectVal = editProject.value;
+            const projectId = projectVal === 'null' ? null : Number(projectVal);
+            const newStatus = editStatus.value;
+
+            const fields = {
+                text: text,
+                description: editDesc.value.trim(),
+                projectId: projectId,
+                effort: Math.max(1, parseInt(editEffort.value, 10) || 1),
+                order: parseFloat(editOrder.value) || 0,
+                nextActionDate: editNextAction.value || null,
+                deadline: editDeadline.value || null,
+                estimatedDurationDays: Math.max(1, parseInt(editEstDuration.value, 10) || 1),
+                startDate: editStartDate.value || null,
+                startDateType: editStartDateType.value,
+                endDate: editEndDate.value || null,
+                endDateType: editEndDateType.value
+            };
+
+            if (editingId) {
+                // Update existing
+                const task = data.tasks.find(t => t.id === editingId);
+                if (task) {
+                    Object.assign(task, fields);
+                    if (task.status !== newStatus) {
+                        HuginnData.setTaskStatus(task, newStatus);
+                    }
+                }
+            } else {
+                // Create new
+                const task = HuginnData.normalizeTask({
+                    id: HuginnData.generateId(),
+                    ...fields,
+                    status: newStatus,
+                    createdAt: new Date().toISOString()
+                });
+                if (newStatus !== 'new') {
+                    HuginnData.setTaskStatus(task, newStatus);
+                }
+                data.tasks.push(task);
+            }
+
+            saveData();
+            closeEditModal();
+            render();
+        }
+
+        // =====================================
+        // BULK EDIT MODAL
+        // =====================================
+
+        function openBulkModal() {
+            if (selectedIds.size === 0) return;
+            document.getElementById('bulkModalTitle').textContent = `Bulk Edit ${selectedIds.size} Tasks`;
+            populateProjectDropdown(bulkProject, true);
+            bulkNextAction.value = '';
+            bulkDeadline.value = '';
+            bulkEffort.value = '';
+            bulkEstDuration.value = '';
+            bulkModalOverlay.classList.add('active');
+        }
+
+        function closeBulkModal() {
+            bulkModalOverlay.classList.remove('active');
+        }
+
+        function applyBulkEdit() {
+            const projVal = bulkProject.value;
+            const nextAction = bulkNextAction.value || null;
+            const deadline = bulkDeadline.value || null;
+            const effort = parseInt(bulkEffort.value, 10);
+            const estDuration = parseInt(bulkEstDuration.value, 10);
+
+            data.tasks.forEach(task => {
+                if (!selectedIds.has(task.id)) return;
+                // All fields overwrite unconditionally (main use case: schedule all to same date)
+                if (projVal !== '') {
+                    task.projectId = projVal === 'null' ? null : Number(projVal);
+                }
+                task.nextActionDate = nextAction;
+                task.deadline = deadline;
+                if (!isNaN(effort) && effort >= 1) task.effort = effort;
+                if (!isNaN(estDuration) && estDuration >= 1) task.estimatedDurationDays = estDuration;
+            });
+
+            saveData();
+            closeBulkModal();
+            selectedIds.clear();
+            isMultiEditMode = false;
+            render();
+        }
+
+        // =====================================
+        // MAIL
+        // =====================================
+
+        function sendMail(task) {
+            const project = getProjectName(task.projectId);
+            const subject = encodeURIComponent(`Task: ${task.text}`);
+            const lines = [
+                `Task: ${task.text}`,
+                `Project: ${project}`,
+                `Status: ${task.status}`,
+                `Effort: ${task.effort}`,
+                task.nextActionDate ? `Next Action: ${task.nextActionDate}` : '',
+                task.deadline ? `Deadline: ${task.deadline}` : '',
+                task.description ? `\nDescription:\n${task.description}` : ''
+            ].filter(Boolean);
+            const body = encodeURIComponent(lines.join('\n'));
+            window.location.href = `mailto:?subject=${subject}&body=${body}`;
+        }
+
+        // =====================================
+        // IMPORT / EXPORT
+        // =====================================
+
+        function doExportJSON() {
+            HuginnData.exportToJSON(data);
+        }
+
+        function doExportCSV() {
+            const tasks = getFilteredAndSortedTasks();
+            const headers = ['text', 'status', 'projectId', 'effort', 'order',
+                'createdAt', 'nextActionDate', 'deadline', 'description',
+                'estimatedDurationDays', 'startDate', 'endDate'];
+            // Map projectId to name for CSV readability
+            const rows = tasks.map(t => ({
+                ...t,
+                projectId: getProjectName(t.projectId)
+            }));
+            HuginnData.exportToCSV(rows, headers, `huginn_tasks_${HuginnData.getTodayDateString()}.csv`);
+        }
+
+        function doImport(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    const raw = JSON.parse(e.target.result);
+
+                    // Detect legacy format: top-level array = flat task list from v7.x
+                    if (Array.isArray(raw)) {
+                        const tasks = raw.map(t => HuginnData.normalizeTask(t));
+                        data = HuginnData.createEmptyData();
+                        data.tasks = tasks;
+                        const { project: personal, newEntities } = HuginnData.ensurePersonalProject(data);
+                        if (newEntities) {
+                            data.projects.push(newEntities.project);
+                            data.events.push(newEntities.startEvent, newEntities.endEvent);
+                            data.tasks.push(newEntities.defaultTask);
+                            data.dependencies.push(...newEntities.dependencies);
+                        }
+                    } else {
+                        // New format: full HuginnData object
+                        data = HuginnData.normalizeData(raw);
+                        const { project: personal, newEntities } = HuginnData.ensurePersonalProject(data);
+                        if (newEntities) {
+                            data.projects.push(newEntities.project);
+                            data.events.push(newEntities.startEvent, newEntities.endEvent);
+                            data.tasks.push(newEntities.defaultTask);
+                            data.dependencies.push(...newEntities.dependencies);
+                        }
+                    }
+
+                    saveData();
+                    render();
+                    console.log(`Imported: ${data.tasks.length} tasks, ${data.projects.length} projects, ${data.events.length} events`);
+                } catch (err) {
+                    console.error('Import error:', err);
+                    alert('Failed to import: ' + err.message);
+                }
+            };
+            reader.readAsText(file);
+            event.target.value = null;
+        }
+
+        // =====================================
+        // ORDER RECALCULATION
+        // =====================================
+
+        function recalcOrder() {
+            const visible = getFilteredAndSortedTasks();
+            const orderMap = new Map(visible.map((t, i) => [t.id, i + 1.0]));
+            data.tasks.forEach(t => {
+                if (orderMap.has(t.id)) t.order = orderMap.get(t.id);
+            });
+            saveData();
+            render();
+        }
+
+        // =====================================
+        // EVENT LISTENERS
+        // =====================================
+
+        // Quick add
+        quickAddText.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') { e.preventDefault(); quickAddTask(); }
+        });
+        document.getElementById('addTaskBtn').addEventListener('click', () => openEditModal(null));
+
+        // Import/Export
+        document.getElementById('importBtn').addEventListener('click', () => fileInput.click());
+        fileInput.addEventListener('change', doImport);
+        document.getElementById('exportJsonBtn').addEventListener('click', doExportJSON);
+        document.getElementById('exportCsvBtn').addEventListener('click', doExportCSV);
+
+        // Filters
+        filterTextInput.addEventListener('input', (e) => {
+            currentFilterText = e.target.value;
+            render();
+        });
+        toggleViewBtn.addEventListener('click', () => { showAllTasks = !showAllTasks; render(); });
+        overdueBtn.addEventListener('click', () => { showOverdueOnly = !showOverdueOnly; render(); });
+        toggleColumnsBtn.addEventListener('click', () => { reducedColumns = !reducedColumns; render(); });
+        document.getElementById('recalcOrderBtn').addEventListener('click', recalcOrder);
+
+        // Multi-edit
+        bulkEditBtn.addEventListener('click', () => {
+            isMultiEditMode = !isMultiEditMode;
+            if (!isMultiEditMode) selectedIds.clear();
+            render();
+        });
+
+        // Table row click (multi-select)
+        taskTableBody.addEventListener('click', (e) => {
+            const row = e.target.closest('tr');
+            if (!row || e.target.closest('button')) return;
+            if (!isMultiEditMode) return;
+
+            const id = parseInt(row.dataset.id, 10);
+            selectedIds.has(id) ? selectedIds.delete(id) : selectedIds.add(id);
+            render();
+        });
+
+        // Sorting
+        document.querySelectorAll('thead th[data-sort-key]').forEach(th => {
+            th.addEventListener('click', () => {
+                const key = th.dataset.sortKey;
+                if (currentSortKey === key) {
+                    currentSortDirection = currentSortDirection === 'asc' ? 'desc' : 'asc';
+                } else {
+                    currentSortKey = key;
+                    currentSortDirection = 'asc';
+                }
+                render();
+            });
+        });
+
+        // Edit modal
+        document.getElementById('editSaveBtn').addEventListener('click', saveEditModal);
+        document.getElementById('editCancelBtn').addEventListener('click', closeEditModal);
+        editModalOverlay.addEventListener('click', (e) => {
+            if (e.target === editModalOverlay) closeEditModal();
+        });
+
+        // Bulk modal
+        document.getElementById('bulkApplyBtn').addEventListener('click', applyBulkEdit);
+        document.getElementById('bulkCancelBtn').addEventListener('click', closeBulkModal);
+        bulkModalOverlay.addEventListener('click', (e) => {
+            if (e.target === bulkModalOverlay) closeBulkModal();
+        });
+
+        // Global keyboard shortcuts
+        document.addEventListener('keydown', (e) => {
+            // E = open bulk edit (when selections exist)
+            if (e.key === 'e' || e.key === 'E') {
+                if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+                if (selectedIds.size > 0) {
+                    e.preventDefault();
+                    openBulkModal();
+                }
+            }
+            // Escape = close modals / clear selection
+            if (e.key === 'Escape') {
+                if (editModalOverlay.classList.contains('active')) { closeEditModal(); return; }
+                if (bulkModalOverlay.classList.contains('active')) { closeBulkModal(); return; }
+                if (selectedIds.size > 0) { selectedIds.clear(); isMultiEditMode = false; render(); }
+            }
+        });
+
+        // Enter in edit modal submits
+        editModalOverlay.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && e.target.tagName !== 'TEXTAREA') {
+                e.preventDefault(); saveEditModal();
+            }
+        });
+
+        // =====================================
+        // INITIALIZATION
+        // =====================================
+        initializeData();
+        render();
+    </script>
+
+    <!-- Navigation Bar -->
+    <nav style="position:fixed; bottom:0; left:0; right:0; background:#1c2529; border-top:1px solid #5a5a5a; padding:6px 15px; display:flex; gap:15px; justify-content:center; font-size:0.85em; z-index:999;">
+        <span style="color:#DCD7C9; font-weight:bold;">Tasks</span>
+        <a href="huginn cal v2.0.html" style="color:#A27B5C; text-decoration:none;">Cal</a>
+        <a href="huginn plan v1.0.html" style="color:#A27B5C; text-decoration:none;">Plan</a>
+        <a href="huginn timekeeper v1.0.html" style="color:#A27B5C; text-decoration:none;">Timekeeper</a>
+    </nav>
+</body>
+</html>

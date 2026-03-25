@@ -7,6 +7,10 @@
 - should be easily importable and exportable
 - no legacy support necessary as we are rapidly iterating on the design for the MVP
 
+## Global UX/UI Requirements
+- **Date & Time Formatting**: All dates and times must be displayed in ISO 8601 format (`YYYY-MM-DD` and `YYYY-MM-DD HH:MM`) in the UX at all times.
+- **Cross-Component Navigation**: A compact navigation bar must be present at the bottom of each component, linking to all other components in the suite.
+
 ## Huginn Tasks
 - core requirements are already implemented, focus on additional features
 
@@ -14,11 +18,13 @@
 - make the content of the table selectable so I can copy-paste it
 - change edit mode to the following:
     - single task edit: open a popup with all fields so I can edit them there
-    - bulk edit: select multiple tasks and edit with hotkey e which pops up a small window with only the fields that can be edited in bulk
+    - bulk edit: select multiple tasks and edit with hotkey e which pops up a small window with only the fields that can be edited in bulk (all fields except task name and description). Bulk edit overwrites all fields unconditionally — the main use case is scheduling multiple tasks to the same date.
 - add a send mail icon to each task that opens a mail client with the task details prefilled
 - in addition to the .json export, add a .csv export with the current view as is
-- add a button to toggle between a reduced set of column only containing the most important fields () and the full set of columns
+- add a button to toggle between a reduced set of columns (Order, Task, Description, Project, Next Action, Deadline) and the full set of columns
 - add a dedicated button to filter to show overdue and due tasks only
+- allow marking a task as done directly without going through 'started' first
+- design principle: clean, high-density UI — use emojis for buttons as space-saving icons, but no decorative emojis or fluff
 - the whote state logic might be reviewed after we implement Huginn Plan (dependencies -> based on that we can derive if a task is blocked by another dependency or needs to be done to unblock another task), but here I am not quite sure how I want to handle this yet
     - currently I think we need: new (not started), started (in progress but not done), done (completed), stopped (completed without success
     - potentially we can consider "blocked", "blocker" and "running late" (started but exeeeding planned duration) as derived states that can be computed from the dependencies and due dates, but maybe this should be separate flags instead of the main state.

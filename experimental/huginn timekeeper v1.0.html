@@ -1,0 +1,754 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Huginn Timekeeper v1.0</title>
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+    <style>
+        :root {
+            --bg-dark: #2C3639;
+            --bg-panel: #3F4E4F;
+            --accent-brown: #A27B5C;
+            --text-light: #DCD7C9;
+            --text-muted: #8b7e74;
+            --signal-green: #228b22;
+            --signal-yellow: #daa520;
+            --signal-red: #8b0000;
+            --input-bg: #DBD7D2;
+            --input-text: #1f1f1f;
+        }
+
+        body {
+            font-family: "Georgia", serif;
+            background-color: var(--bg-dark);
+            color: var(--text-light);
+            margin: 0; padding: 15px;
+            font-size: 0.95em;
+            overflow-y: scroll;
+        }
+
+        /* Layout */
+        .container {
+            display: grid;
+            grid-template-columns: 350px 1fr;
+            grid-template-rows: auto 1fr;
+            gap: 15px;
+            height: calc(100vh - 30px);
+        }
+
+        header {
+            grid-column: 1 / -1;
+            background-color: var(--bg-panel);
+            padding: 15px; border-radius: 5px;
+            display: flex; justify-content: space-between; align-items: center;
+            border: 1px solid #5a5a5a;
+        }
+
+        .active-timer-display {
+            flex-grow: 1; text-align: center;
+            font-size: 1.5em; font-weight: bold;
+            color: var(--accent-brown);
+        }
+        .active-project-name {
+            font-size: 0.7em; color: var(--text-muted); display: block;
+        }
+
+        /* Panels */
+        .panel-left {
+            background-color: var(--bg-panel);
+            border-radius: 5px; border: 1px solid #5a5a5a;
+            display: flex; flex-direction: column; overflow: hidden;
+        }
+        .panel-header {
+            padding: 10px; background-color: rgba(0,0,0,0.2);
+            font-weight: bold; display: flex; justify-content: space-between; align-items: center;
+        }
+        .tree-container {
+            flex-grow: 1; overflow-y: auto; padding: 10px;
+        }
+
+        .panel-right {
+            background-color: var(--bg-panel);
+            border-radius: 5px; border: 1px solid #5a5a5a;
+            display: flex; flex-direction: column; overflow: hidden;
+        }
+
+        /* Tabs */
+        .tabs { display: flex; background-color: rgba(0,0,0,0.2); }
+        .tab-btn {
+            padding: 10px 20px; background: none; border: none;
+            color: var(--text-muted); cursor: pointer;
+            font-family: inherit; font-weight: bold;
+            border-right: 1px solid #5a5a5a;
+        }
+        .tab-btn:hover { color: var(--text-light); background-color: rgba(255,255,255,0.05); }
+        .tab-btn.active { color: var(--bg-dark); background-color: var(--accent-brown); }
+
+        .tab-content { flex-grow: 1; padding: 15px; overflow-y: auto; display: none; }
+        .tab-content.active { display: block; }
+
+        /* Project tree items */
+        .project-item {
+            display: flex; align-items: center; padding: 4px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+        .project-item:hover { background-color: rgba(255,255,255,0.05); }
+        .project-name {
+            flex-grow: 1; cursor: default; user-select: none;
+            font-size: 0.9em;
+        }
+        .project-path {
+            font-size: 0.75em; color: var(--text-muted); display: block;
+        }
+
+        .btn-icon {
+            background: none; border: none; cursor: pointer;
+            color: var(--text-muted); font-size: 1.1em; padding: 0 5px;
+            transition: color 0.2s;
+        }
+        .btn-icon:hover { color: var(--text-light); }
+        .btn-start:hover { color: var(--signal-green); }
+        .btn-stop { color: var(--signal-red); font-weight: bold; font-size: 1.2em; }
+
+        /* Log/Stats tables */
+        table { width: 100%; border-collapse: collapse; font-size: 0.9em; }
+        th { text-align: left; border-bottom: 2px solid var(--accent-brown); padding: 5px; color: var(--accent-brown); }
+        td { border-bottom: 1px solid #5a5a5a; padding: 5px; }
+        tr:hover td { background-color: rgba(255,255,255,0.05); cursor: pointer; }
+        .edited-tag {
+            font-size: 0.7em; background-color: var(--signal-yellow);
+            color: #000; padding: 1px 4px; border-radius: 3px; margin-left: 5px;
+        }
+
+        /* Buttons & Forms */
+        button.primary {
+            background-color: var(--accent-brown); color: var(--bg-dark);
+            border: none; padding: 8px 12px; border-radius: 3px;
+            cursor: pointer; font-weight: bold;
+        }
+        button.primary:hover { filter: brightness(1.1); }
+        button.danger {
+            background-color: var(--signal-red); color: white;
+            border: none; padding: 8px 12px; border-radius: 3px; cursor: pointer;
+        }
+
+        input[type="text"], input[type="datetime-local"], select {
+            background-color: var(--input-bg); border: 1px solid #5a5a5a;
+            padding: 6px; border-radius: 3px;
+            color: var(--input-text); font-family: inherit;
+        }
+
+        /* Modal */
+        .modal-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.7);
+            display: none; justify-content: center; align-items: center; z-index: 1000;
+        }
+        .modal {
+            background-color: var(--bg-panel); padding: 20px;
+            border-radius: 5px; border: 1px solid var(--accent-brown);
+            width: 400px; max-width: 90%;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+        }
+        .modal h2 { margin-top: 0; color: var(--accent-brown); }
+        .form-group { margin-bottom: 15px; }
+        .form-group label { display: block; margin-bottom: 5px; font-weight: bold; font-size: 0.9em; }
+        .form-group input, .form-group select { width: 100%; box-sizing: border-box; }
+        .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: var(--bg-dark); }
+        ::-webkit-scrollbar-thumb { background: #5a5a5a; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--accent-brown); }
+
+        #fileInput { display: none; }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div style="font-weight: bold; font-size: 1.2em;">Huginn Timekeeper</div>
+        <div class="active-timer-display" id="timerDisplay">
+            <span class="active-project-name" id="timerProjectName">No active timer</span>
+            <span id="timerClock">00:00:00</span>
+        </div>
+        <div style="display:flex; gap:8px;">
+            <button class="primary" id="stopBtn" style="display: none; background-color: var(--signal-red); color: white;">STOP</button>
+            <button class="primary" id="importBtn" title="Load JSON">Import</button>
+            <button class="primary" onclick="doExportJSON()" title="Export JSON">Export</button>
+            <input type="file" id="fileInput" accept=".json">
+        </div>
+    </header>
+
+    <div class="container">
+        <div class="panel-left">
+            <div class="panel-header">
+                <span>Tasks / Projects</span>
+            </div>
+            <div class="tree-container" id="projectTree"></div>
+        </div>
+
+        <div class="panel-right">
+            <div class="tabs">
+                <button class="tab-btn active" onclick="switchTab('log')">Log</button>
+                <button class="tab-btn" onclick="switchTab('viz')">Viz</button>
+                <button class="tab-btn" onclick="switchTab('stats')">Stats</button>
+            </div>
+
+            <div id="tab-log" class="tab-content active">
+                <h3>Activity History</h3>
+                <table id="logTable">
+                    <thead>
+                        <tr><th>Task</th><th>Project</th><th>Start</th><th>End</th><th>Duration</th></tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+
+            <div id="tab-viz" class="tab-content">
+                <h3>Timeline (Last 7 Days)</h3>
+                <div id="vizGantt" style="width: 100%; height: 300px;"></div>
+                <h3>Session Length Distribution</h3>
+                <div id="vizHist" style="width: 100%; height: 300px;"></div>
+            </div>
+
+            <div id="tab-stats" class="tab-content">
+                <h3>Total Time per Task</h3>
+                <table id="statsTable">
+                    <thead><tr><th>Task</th><th>Project</th><th>Total Time</th><th>Sessions</th></tr></thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Activity Modal -->
+    <div id="editModal" class="modal-overlay">
+        <div class="modal">
+            <h2>Edit Activity</h2>
+            <input type="hidden" id="editId">
+            <div class="form-group">
+                <label>Task</label>
+                <select id="editTask"></select>
+            </div>
+            <div class="form-group">
+                <label>Start Time</label>
+                <input type="datetime-local" id="editStart">
+            </div>
+            <div class="form-group">
+                <label>End Time</label>
+                <input type="datetime-local" id="editEnd">
+            </div>
+            <div class="modal-actions">
+                <button class="danger" onclick="deleteActivity()">Delete</button>
+                <button onclick="closeModals()">Cancel</button>
+                <button class="primary" onclick="saveActivityEdit()">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="huginn_data.js"></script>
+    <script>
+        // ============================
+        // Huginn Timekeeper v1.0
+        // ============================
+
+        let data = null;
+        let editingActivityId = null;
+
+        const fileInput = document.getElementById('fileInput');
+
+        // =====================================
+        // DATA LAYER
+        // =====================================
+
+        function initializeData() {
+            data = HuginnData.loadFromLocalStorage();
+            if (data.tasks.length === 0 && data.projects.length === 0) {
+                data = HuginnData.migrateAllLegacyData();
+            }
+            const { newEntities } = HuginnData.ensurePersonalProject(data);
+            if (newEntities) {
+                data.projects.push(newEntities.project);
+                data.events.push(newEntities.startEvent, newEntities.endEvent);
+                data.tasks.push(newEntities.defaultTask);
+                data.dependencies.push(...newEntities.dependencies);
+                saveData();
+            }
+        }
+
+        function saveData() {
+            HuginnData.saveToLocalStorage(data);
+        }
+
+        // =====================================
+        // TASK/PROJECT HELPERS
+        // =====================================
+
+        function getTaskName(taskId) {
+            const task = data.tasks.find(t => t.id === taskId);
+            return task ? task.text : 'Unknown Task';
+        }
+
+        function getTaskProjectName(taskId) {
+            const task = data.tasks.find(t => t.id === taskId);
+            if (!task) return '';
+            if (task.projectId == null) return 'Personal Tasks';
+            return HuginnData.getProjectPath(task.projectId, data.projects) || '';
+        }
+
+        function getTimekeepableTasks() {
+            // Return all active tasks (new or started) grouped by project
+            return data.tasks.filter(t => t.status === 'new' || t.status === 'started');
+        }
+
+        function getActiveActivity() {
+            if (!data.timekeeping.activeActivityId) return null;
+            return data.timekeeping.activities.find(a => a.id === data.timekeeping.activeActivityId);
+        }
+
+        // =====================================
+        // TIMER LOGIC
+        // =====================================
+
+        function startTimer(taskId) {
+            stopTimer(); // Stop any running timer
+
+            const newActivity = HuginnData.normalizeActivity({
+                id: HuginnData.generateId(),
+                taskId: taskId,
+                start: new Date().toISOString(),
+                end: null,
+                edited: false
+            });
+            data.timekeeping.activities.push(newActivity);
+            data.timekeeping.activeActivityId = newActivity.id;
+            saveData();
+            render();
+        }
+
+        function stopTimer() {
+            const active = getActiveActivity();
+            if (active) {
+                active.end = new Date().toISOString();
+                data.timekeeping.activeActivityId = null;
+                saveData();
+                render();
+            }
+        }
+
+        // =====================================
+        // RENDERING
+        // =====================================
+
+        function render() {
+            renderTree();
+            renderLog();
+            renderStats();
+        }
+
+        function renderTree() {
+            const container = document.getElementById('projectTree');
+            container.innerHTML = '';
+
+            const activeActivity = getActiveActivity();
+            const activeTaskId = activeActivity ? activeActivity.taskId : null;
+
+            // Build project hierarchy
+            const projectMap = {};
+            data.projects.forEach(p => projectMap[p.id] = { ...p, children: [], tasks: [] });
+            const rootProjects = [];
+            data.projects.forEach(p => {
+                if (p.parentId && projectMap[p.parentId]) {
+                    projectMap[p.parentId].children.push(projectMap[p.id]);
+                } else {
+                    rootProjects.push(projectMap[p.id]);
+                }
+            });
+
+            // Assign timekeepable tasks to projects
+            const tasks = getTimekeepableTasks();
+            tasks.forEach(t => {
+                if (t.projectId && projectMap[t.projectId]) {
+                    projectMap[t.projectId].tasks.push(t);
+                } else {
+                    // Personal tasks — find personal project
+                    const personal = rootProjects.find(p => p.name === HuginnData.PERSONAL_PROJECT_NAME);
+                    if (personal) personal.tasks.push(t);
+                }
+            });
+
+            function buildProjectNode(proj, depth) {
+                // Project header
+                const projDiv = document.createElement('div');
+                projDiv.className = 'project-item';
+                projDiv.style.paddingLeft = (depth * 15) + 'px';
+
+                const nameSpan = document.createElement('span');
+                nameSpan.className = 'project-name';
+                nameSpan.style.fontWeight = 'bold';
+                nameSpan.style.color = 'var(--accent-brown)';
+                nameSpan.style.fontSize = '0.85em';
+                nameSpan.textContent = '📁 ' + proj.name;
+                projDiv.appendChild(nameSpan);
+                container.appendChild(projDiv);
+
+                // Tasks under this project
+                proj.tasks.forEach(task => {
+                    const taskDiv = document.createElement('div');
+                    taskDiv.className = 'project-item';
+                    taskDiv.style.paddingLeft = ((depth + 1) * 15) + 'px';
+
+                    const taskName = document.createElement('span');
+                    taskName.className = 'project-name';
+                    taskName.textContent = task.text;
+                    if (task.id === activeTaskId) {
+                        taskName.style.color = 'var(--signal-green)';
+                        taskName.style.fontWeight = 'bold';
+                    }
+                    taskDiv.appendChild(taskName);
+
+                    if (task.id !== activeTaskId) {
+                        const playBtn = document.createElement('button');
+                        playBtn.className = 'btn-icon btn-start';
+                        playBtn.innerHTML = '▶';
+                        playBtn.title = 'Start Timer';
+                        playBtn.onclick = (e) => { e.stopPropagation(); startTimer(task.id); };
+                        taskDiv.appendChild(playBtn);
+                    } else {
+                        const runIcon = document.createElement('span');
+                        runIcon.innerHTML = '⏳';
+                        runIcon.style.marginRight = '5px';
+                        taskDiv.appendChild(runIcon);
+                    }
+
+                    container.appendChild(taskDiv);
+                });
+
+                // Child projects
+                proj.children.forEach(child => buildProjectNode(child, depth + 1));
+            }
+
+            rootProjects.forEach(p => buildProjectNode(p, 0));
+
+            if (rootProjects.length === 0 && tasks.length === 0) {
+                container.innerHTML = '<div style="padding:20px; color:var(--text-muted); text-align:center;">No active tasks found.<br>Import data from Huginn Tasks.</div>';
+            }
+        }
+
+        function renderLog() {
+            const tbody = document.querySelector('#logTable tbody');
+            tbody.innerHTML = '';
+
+            const sorted = [...data.timekeeping.activities]
+                .filter(a => a.end)
+                .sort((a, b) => new Date(b.start) - new Date(a.start));
+
+            sorted.forEach(act => {
+                const tr = document.createElement('tr');
+                tr.onclick = () => openEditModal(act.id);
+
+                const start = new Date(act.start);
+                const end = new Date(act.end);
+                const durMs = end - start;
+
+                let taskCell = `<td>${getTaskName(act.taskId)}`;
+                if (act.edited) taskCell += `<span class="edited-tag">Edited</span>`;
+                taskCell += `</td>`;
+
+                tr.innerHTML = `
+                    ${taskCell}
+                    <td style="font-size:0.85em; color:var(--text-muted)">${getTaskProjectName(act.taskId)}</td>
+                    <td>${HuginnData.formatDateTimeISO(act.start)}</td>
+                    <td>${HuginnData.formatTimeISO(act.end)}</td>
+                    <td>${formatDuration(durMs)}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function renderStats() {
+            const tbody = document.querySelector('#statsTable tbody');
+            tbody.innerHTML = '';
+
+            const totals = {};
+            const counts = {};
+
+            data.timekeeping.activities.forEach(act => {
+                if (!act.end) return;
+                const ms = new Date(act.end) - new Date(act.start);
+                totals[act.taskId] = (totals[act.taskId] || 0) + ms;
+                counts[act.taskId] = (counts[act.taskId] || 0) + 1;
+            });
+
+            const statsArr = Object.keys(totals).map(tid => ({
+                tid: Number(tid), ms: totals[tid], count: counts[tid]
+            })).sort((a, b) => b.ms - a.ms);
+
+            statsArr.forEach(item => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${getTaskName(item.tid)}</td>
+                    <td style="font-size:0.85em; color:var(--text-muted)">${getTaskProjectName(item.tid)}</td>
+                    <td>${formatDuration(item.ms)}</td>
+                    <td>${item.count}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function updateTimerDisplay() {
+            const active = getActiveActivity();
+            const displayTime = document.getElementById('timerClock');
+            const displayName = document.getElementById('timerProjectName');
+            const stopBtn = document.getElementById('stopBtn');
+
+            if (active) {
+                const diff = new Date() - new Date(active.start);
+                displayTime.textContent = formatDuration(diff);
+                displayTime.style.color = 'var(--text-light)';
+                displayName.textContent = getTaskName(active.taskId);
+                stopBtn.style.display = 'inline-block';
+                stopBtn.onclick = stopTimer;
+            } else {
+                displayTime.textContent = '00:00:00';
+                displayTime.style.color = 'var(--text-muted)';
+                displayName.textContent = 'No active timer';
+                stopBtn.style.display = 'none';
+            }
+        }
+
+        // =====================================
+        // CHARTS (Plotly)
+        // =====================================
+
+        function renderCharts() {
+            const finished = data.timekeeping.activities.filter(a => a.end !== null);
+            if (finished.length === 0) return;
+
+            const taskNames = {};
+            data.tasks.forEach(t => taskNames[t.id] = t.text);
+
+            // Timeline traces
+            const cutOff = new Date();
+            cutOff.setDate(cutOff.getDate() - 7);
+            const taskIds = [...new Set(finished.map(a => a.taskId))];
+            const traces = [];
+
+            taskIds.forEach(tid => {
+                const acts = finished.filter(a => a.taskId === tid && new Date(a.start) > cutOff);
+                if (acts.length === 0) return;
+                const x = [], y = [];
+                acts.forEach(a => {
+                    x.push(a.start, a.end, null);
+                    y.push(taskNames[tid] || 'Unknown', taskNames[tid] || 'Unknown', null);
+                });
+                traces.push({
+                    x, y, mode: 'lines',
+                    line: { width: 15, color: '#A27B5C' },
+                    name: taskNames[tid] || 'Unknown',
+                    showlegend: false
+                });
+            });
+
+            const layoutGantt = {
+                paper_bgcolor: 'rgba(0,0,0,0)',
+                plot_bgcolor: 'rgba(0,0,0,0)',
+                font: { color: '#DCD7C9' },
+                margin: { l: 120, r: 20, t: 20, b: 40 },
+                xaxis: { type: 'date', gridcolor: '#5a5a5a' },
+                yaxis: { gridcolor: '#5a5a5a', type: 'category' }
+            };
+            Plotly.newPlot('vizGantt', traces, layoutGantt);
+
+            // Histogram
+            const durations = finished.map(a => (new Date(a.end) - new Date(a.start)) / 60000);
+            Plotly.newPlot('vizHist', [{
+                x: durations, type: 'histogram',
+                marker: { color: '#228b22' }
+            }], {
+                paper_bgcolor: 'rgba(0,0,0,0)',
+                plot_bgcolor: 'rgba(0,0,0,0)',
+                font: { color: '#DCD7C9' },
+                xaxis: { title: 'Minutes', gridcolor: '#5a5a5a' },
+                yaxis: { title: 'Count', gridcolor: '#5a5a5a' },
+                margin: { l: 40, r: 20, t: 20, b: 40 }
+            });
+        }
+
+        // =====================================
+        // HELPERS
+        // =====================================
+
+        function formatDuration(ms) {
+            const sec = Math.floor(ms / 1000);
+            const h = Math.floor(sec / 3600);
+            const m = Math.floor((sec % 3600) / 60);
+            const s = sec % 60;
+            return `${pad(h)}:${pad(m)}:${pad(s)}`;
+        }
+        function pad(n) { return n < 10 ? '0' + n : n; }
+
+        // =====================================
+        // TABS
+        // =====================================
+
+        function switchTab(name) {
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+            document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+            document.getElementById('tab-' + name).classList.add('active');
+            document.querySelector(`button[onclick="switchTab('${name}')"]`).classList.add('active');
+            if (name === 'viz') setTimeout(renderCharts, 100);
+        }
+
+        // =====================================
+        // EDIT MODAL
+        // =====================================
+
+        function openEditModal(actId) {
+            editingActivityId = actId;
+            const act = data.timekeeping.activities.find(a => a.id === actId);
+            if (!act) return;
+
+            document.getElementById('editModal').style.display = 'flex';
+
+            // Populate task dropdown with all tasks
+            const sel = document.getElementById('editTask');
+            sel.innerHTML = '';
+            data.tasks.forEach(t => {
+                const opt = document.createElement('option');
+                opt.value = t.id;
+                const projName = getTaskProjectName(t.id);
+                opt.textContent = t.text + (projName ? ` (${projName})` : '');
+                if (t.id === act.taskId) opt.selected = true;
+                sel.appendChild(opt);
+            });
+
+            const toLocalISO = (isoStr) => {
+                if (!isoStr) return '';
+                const d = new Date(isoStr);
+                d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+                return d.toISOString().slice(0, 16);
+            };
+
+            document.getElementById('editStart').value = toLocalISO(act.start);
+            document.getElementById('editEnd').value = toLocalISO(act.end);
+        }
+
+        function saveActivityEdit() {
+            const act = data.timekeeping.activities.find(a => a.id === editingActivityId);
+            if (!act) return;
+
+            const tId = Number(document.getElementById('editTask').value);
+            const sVal = document.getElementById('editStart').value;
+            const eVal = document.getElementById('editEnd').value;
+
+            if (sVal) act.start = new Date(sVal).toISOString();
+            if (eVal) act.end = new Date(eVal).toISOString();
+            act.taskId = tId;
+            act.edited = true;
+
+            saveData();
+            closeModals();
+            render();
+        }
+
+        function deleteActivity() {
+            if (confirm('Delete this activity log entry?')) {
+                data.timekeeping.activities = data.timekeeping.activities.filter(a => a.id !== editingActivityId);
+                if (data.timekeeping.activeActivityId === editingActivityId) {
+                    data.timekeeping.activeActivityId = null;
+                }
+                saveData();
+                closeModals();
+                render();
+            }
+        }
+
+        function closeModals() {
+            document.querySelectorAll('.modal-overlay').forEach(el => el.style.display = 'none');
+            editingActivityId = null;
+        }
+
+        // =====================================
+        // IMPORT / EXPORT
+        // =====================================
+
+        function doExportJSON() {
+            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = 'huginn_data.json';
+            a.click();
+        }
+
+        document.getElementById('importBtn').addEventListener('click', () => fileInput.click());
+        fileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (ev) => {
+                try {
+                    const raw = JSON.parse(ev.target.result);
+
+                    // Detect legacy timekeeper format
+                    if (!raw.huginnVersion && raw.projects && raw.activities && !raw.tasks) {
+                        // Legacy timekeeper data — merge using migration
+                        data = HuginnData.migrateAllLegacyData();
+                        saveData();
+                        render();
+                        return;
+                    }
+
+                    data = HuginnData.normalizeData(raw);
+                    const { newEntities } = HuginnData.ensurePersonalProject(data);
+                    if (newEntities) {
+                        data.projects.push(newEntities.project);
+                        data.events.push(newEntities.startEvent, newEntities.endEvent);
+                        data.tasks.push(newEntities.defaultTask);
+                        data.dependencies.push(...newEntities.dependencies);
+                    }
+                    saveData();
+                    render();
+                } catch (err) {
+                    console.error('Import error:', err);
+                }
+            };
+            reader.readAsText(file);
+            fileInput.value = '';
+        });
+
+        // =====================================
+        // HOTKEYS
+        // =====================================
+
+        document.addEventListener('keydown', (e) => {
+            if (e.target.tagName === 'INPUT') return;
+            if (e.key === 'Escape') closeModals();
+            if (e.code === 'Space') {
+                e.preventDefault();
+                stopTimer();
+            }
+        });
+
+        // =====================================
+        // INIT
+        // =====================================
+
+        initializeData();
+        render();
+        setInterval(updateTimerDisplay, 1000);
+        updateTimerDisplay();
+    </script>
+
+    <!-- Navigation Bar -->
+    <nav style="position:fixed; bottom:0; left:0; right:0; background:#1c2529; border-top:1px solid #5a5a5a; padding:6px 15px; display:flex; gap:15px; justify-content:center; font-size:0.85em; z-index:999;">
+        <a href="huginn tasks v8.0.html" style="color:var(--accent-brown); text-decoration:none;">Tasks</a>
+        <a href="huginn cal v2.0.html" style="color:var(--accent-brown); text-decoration:none;">Cal</a>
+        <a href="huginn plan v1.0.html" style="color:var(--accent-brown); text-decoration:none;">Plan</a>
+        <span style="color:var(--text-light); font-weight:bold;">Timekeeper</span>
+    </nav>
+</body>
+</html>

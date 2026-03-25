@@ -1,0 +1,1303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Huginn Plan v1.0</title>
+    <style>
+        /* === Base === */
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: "Georgia", serif;
+            font-size: 0.9em;
+            background-color: #2A3439;
+            color: #DCD7C9;
+            overflow: hidden;
+            height: 100vh;
+        }
+
+        /* === Layout === */
+        .app-container {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            padding-bottom: 32px; /* nav bar */
+        }
+        .toolbar {
+            display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+            background-color: #3F4E4F; border-bottom: 1px solid #5a5a5a;
+            padding: 8px 12px; flex-shrink: 0;
+        }
+        .toolbar input[type="text"], .toolbar input[type="number"] {
+            padding: 5px 8px; border: 1px solid #888; border-radius: 3px;
+            font-family: inherit; font-size: 0.9em;
+            background: #2C3639; color: #DCD7C9;
+        }
+        .toolbar select {
+            padding: 5px; border: 1px solid #888; border-radius: 3px;
+            font-family: inherit; background: #2C3639; color: #DCD7C9;
+        }
+        .main-panels {
+            display: flex; flex: 1; overflow: hidden;
+        }
+        .panel-divider {
+            width: 4px; background: #5a5a5a; cursor: col-resize; flex-shrink: 0;
+        }
+        .panel-divider:hover { background: #A27B5C; }
+
+        /* === Tree Panel === */
+        .tree-panel {
+            flex: 0 0 45%; overflow-y: auto; overflow-x: hidden;
+            padding: 8px; background: #2C3639;
+        }
+        .tree-node {
+            cursor: pointer; user-select: none;
+            border-bottom: 1px solid #3F4E4F;
+        }
+        .tree-row {
+            display: flex; align-items: center; padding: 4px 6px; gap: 6px;
+            transition: background 0.1s;
+        }
+        .tree-row:hover { background: #3F4E4F; }
+        .tree-row.selected { background: #4a5f5f; border-left: 3px solid #A27B5C; }
+        .tree-row.critical-path { border-right: 3px solid #daa520; }
+        .tree-row.running-late { border-left: 3px solid #8b0000; }
+
+        .tree-toggle {
+            width: 18px; text-align: center; font-size: 0.75em; color: #8b7e74;
+            flex-shrink: 0; cursor: pointer;
+        }
+        .tree-icon {
+            width: 16px; text-align: center; flex-shrink: 0; font-size: 0.9em;
+        }
+        .tree-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .tree-meta {
+            font-size: 0.8em; color: #8b7e74; white-space: nowrap; flex-shrink: 0;
+        }
+        .tree-layer {
+            font-size: 0.7em; color: #A27B5C; background: #2C3639; border: 1px solid #5a5a5a;
+            border-radius: 3px; padding: 1px 4px; flex-shrink: 0;
+        }
+        .tree-children { padding-left: 20px; }
+        .tree-children.collapsed { display: none; }
+
+        /* Status colors for tree items */
+        .status-new .tree-label { color: #DCD7C9; }
+        .status-started .tree-label { color: #6b8e23; }
+        .status-done .tree-label { color: #8b7e74; text-decoration: line-through; }
+        .status-stopped .tree-label { color: #666; text-decoration: line-through; }
+        .type-milestone .tree-label { color: #daa520; font-style: italic; }
+        .type-project .tree-label { color: #DCD7C9; font-weight: bold; }
+
+        /* === Gantt Panel === */
+        .gantt-panel {
+            flex: 1; overflow: auto; background: #2C3639; position: relative;
+        }
+        .gantt-header {
+            position: sticky; top: 0; z-index: 10; background: #3F4E4F;
+            border-bottom: 1px solid #5a5a5a; height: 32px; display: flex;
+        }
+        .gantt-header-cell {
+            flex-shrink: 0; text-align: center; font-size: 0.7em; color: #8b7e74;
+            border-right: 1px solid #3F4E4F; display: flex; align-items: center;
+            justify-content: center;
+        }
+        .gantt-header-cell.weekend { background: #333d40; }
+        .gantt-header-cell.today { background: #4a3f2f; color: #daa520; font-weight: bold; }
+        .gantt-body { position: relative; }
+        .gantt-row {
+            height: 29px; position: relative;
+            border-bottom: 1px solid #333d40;
+        }
+        .gantt-row:hover { background: #333d40; }
+        .gantt-bar {
+            position: absolute; top: 5px; height: 18px; border-radius: 3px;
+            font-size: 0.7em; color: #fff; line-height: 18px; padding: 0 4px;
+            overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+            cursor: pointer; z-index: 2;
+        }
+        .gantt-bar.task-bar { background: #5a7a5a; }
+        .gantt-bar.task-bar.critical { background: #8b6914; }
+        .gantt-bar.task-bar.done { background: #555; opacity: 0.6; }
+        .gantt-bar.task-bar.late { background: #8b0000; }
+        .gantt-bar.selected { outline: 2px solid #DCD7C9; }
+        .gantt-available-window {
+            position: absolute; top: 8px; height: 12px; border-radius: 2px;
+            background: rgba(90,122,90,0.2); z-index: 1;
+        }
+        .gantt-milestone {
+            position: absolute; top: 4px; width: 14px; height: 14px;
+            transform: rotate(45deg); cursor: pointer; z-index: 2;
+        }
+        .gantt-milestone.critical { background: #daa520; }
+        .gantt-milestone.normal { background: #5a7a5a; }
+        .gantt-milestone.selected { outline: 2px solid #DCD7C9; }
+        .gantt-today-line {
+            position: absolute; top: 0; bottom: 0; width: 2px;
+            background: #daa520; z-index: 5; pointer-events: none;
+        }
+        /* Dependency arrows rendered via SVG */
+        .gantt-arrows {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            z-index: 3; pointer-events: none;
+        }
+
+        /* === Buttons === */
+        button {
+            padding: 5px 10px; background-color: #5a7a5a; color: #DCD7C9;
+            border: 1px solid #6b8e23; border-radius: 3px; cursor: pointer;
+            transition: background 0.15s; font-family: inherit; font-size: 0.85em;
+        }
+        button:hover { background-color: #6b8e23; }
+        button.danger { background: #6b2020; border-color: #8b0000; }
+        button.danger:hover { background: #8b0000; }
+        button.secondary { background: #555; border-color: #777; }
+        button.secondary:hover { background: #777; }
+        button.active { background: #A27B5C; border-color: #8b6914; }
+        .toolbar-spacer { flex-grow: 1; }
+        .toolbar-label { font-size: 0.85em; color: #8b7e74; }
+
+        /* === Modal === */
+        .modal-overlay {
+            display: none; position: fixed; inset: 0;
+            background: rgba(0,0,0,0.6); z-index: 1000;
+            justify-content: center; align-items: center;
+        }
+        .modal-overlay.active { display: flex; }
+        .modal {
+            background: #3F4E4F; border: 1px solid #5a5a5a;
+            border-radius: 6px; padding: 20px; min-width: 420px; max-width: 560px;
+            width: 90%; max-height: 85vh; overflow-y: auto;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.5); color: #DCD7C9;
+        }
+        .modal h2 {
+            margin-bottom: 14px; color: #DCD7C9; font-size: 1.1em;
+            border-bottom: 1px solid #5a5a5a; padding-bottom: 8px;
+        }
+        .modal-grid {
+            display: grid; grid-template-columns: auto 1fr;
+            gap: 8px 12px; align-items: center;
+        }
+        .modal-grid label { font-size: 0.85em; text-align: right; color: #8b7e74; }
+        .modal-grid input, .modal-grid select, .modal-grid textarea {
+            width: 100%; padding: 5px; border: 1px solid #5a5a5a;
+            border-radius: 3px; font-family: inherit; font-size: 0.9em;
+            background: #2C3639; color: #DCD7C9;
+        }
+        .modal-grid textarea { resize: vertical; min-height: 50px; }
+        .modal-actions {
+            margin-top: 14px; display: flex; justify-content: flex-end; gap: 8px;
+        }
+
+        /* === Dependency Panel === */
+        .dep-panel {
+            background: #333d40; border: 1px solid #5a5a5a; border-radius: 4px;
+            padding: 8px; margin-top: 8px; font-size: 0.85em;
+        }
+        .dep-panel h3 { font-size: 0.9em; color: #A27B5C; margin-bottom: 6px; }
+        .dep-item {
+            display: flex; align-items: center; gap: 6px; padding: 3px 0;
+            border-bottom: 1px solid #3F4E4F;
+        }
+        .dep-item button { font-size: 0.75em; padding: 2px 6px; }
+
+        /* === Details Sidebar === */
+        .details-panel {
+            width: 280px; background: #333d40; border-left: 1px solid #5a5a5a;
+            overflow-y: auto; flex-shrink: 0; padding: 10px; font-size: 0.85em;
+        }
+        .details-panel h3 {
+            color: #A27B5C; font-size: 0.95em; margin-bottom: 8px;
+            border-bottom: 1px solid #5a5a5a; padding-bottom: 4px;
+        }
+        .detail-row { display: flex; justify-content: space-between; padding: 3px 0; }
+        .detail-label { color: #8b7e74; }
+        .detail-value { color: #DCD7C9; text-align: right; }
+
+        /* === Help Overlay === */
+        .help-overlay {
+            display: none; position: fixed; inset: 0;
+            background: rgba(0,0,0,0.7); z-index: 2000;
+            justify-content: center; align-items: center;
+        }
+        .help-overlay.active { display: flex; }
+        .help-content {
+            background: #3F4E4F; border: 1px solid #5a5a5a; border-radius: 6px;
+            padding: 20px; max-width: 500px; width: 90%; max-height: 80vh; overflow-y: auto;
+            color: #DCD7C9; font-size: 0.9em;
+        }
+        .help-content h2 { color: #A27B5C; margin-bottom: 12px; }
+        .help-content table { width: 100%; border-collapse: collapse; }
+        .help-content th, .help-content td {
+            padding: 4px 8px; text-align: left; border-bottom: 1px solid #5a5a5a;
+        }
+        .help-content th { color: #A27B5C; }
+        .help-content kbd {
+            background: #2C3639; border: 1px solid #5a5a5a; border-radius: 3px;
+            padding: 1px 5px; font-family: monospace;
+        }
+
+        /* Conflicts banner */
+        .conflicts-banner {
+            background: #5a2020; color: #ffaaaa; padding: 6px 12px;
+            font-size: 0.85em; display: none; flex-shrink: 0;
+        }
+        .conflicts-banner.active { display: block; }
+
+        #fileInput { display: none; }
+    </style>
+</head>
+<body>
+
+<div class="app-container">
+    <!-- Toolbar -->
+    <div class="toolbar" id="toolbar">
+        <button id="addProjectBtn" title="Add root project">+ Project</button>
+        <button id="addSubprojectBtn" title="Add subproject under selection">+ Sub</button>
+        <button id="addTaskBtn" title="Add task to selected project">+ Task</button>
+        <button id="addMilestoneBtn" title="Add milestone to selected project">+ Milestone</button>
+        <span class="toolbar-label">|</span>
+        <button id="editBtn" title="Edit selected item (E)">✏️ Edit</button>
+        <button id="deleteBtn" class="danger" title="Delete selected (Del)">🗑️ Del</button>
+        <span class="toolbar-label">|</span>
+        <button id="breakdownBtn" title="Convert task → project">Breakdown</button>
+        <button id="flattenBtn" title="Convert project → task">Flatten</button>
+        <button id="groupBtn" title="Group selected tasks into project">Group</button>
+        <span class="toolbar-label">|</span>
+        <button id="scheduleBtn" title="Run scheduler (S)">📅 Schedule</button>
+        <span class="toolbar-label">|</span>
+        <input type="text" id="filterInput" placeholder="Filter..." style="width:140px;">
+        <select id="layerFilter" title="Filter by layer">
+            <option value="">All Layers</option>
+        </select>
+        <div class="toolbar-spacer"></div>
+        <select id="ganttZoom" title="Gantt zoom level">
+            <option value="day">Day</option>
+            <option value="week" selected>Week</option>
+            <option value="month">Month</option>
+        </select>
+        <button id="expandAllBtn" title="Expand all">▶ All</button>
+        <button id="collapseAllBtn" title="Collapse all">▼ All</button>
+        <span class="toolbar-label">|</span>
+        <button id="importBtn">Import</button>
+        <button id="exportJsonBtn">JSON</button>
+        <button id="exportCsvBtn">CSV</button>
+        <button id="helpBtn" title="Keyboard shortcuts (?)">?</button>
+        <input type="file" id="fileInput" accept=".json">
+    </div>
+
+    <!-- Conflicts banner -->
+    <div class="conflicts-banner" id="conflictsBanner"></div>
+
+    <!-- Main content -->
+    <div class="main-panels">
+        <div class="tree-panel" id="treePanel"></div>
+        <div class="panel-divider" id="panelDivider"></div>
+        <div class="gantt-panel" id="ganttPanel">
+            <div class="gantt-header" id="ganttHeader"></div>
+            <div class="gantt-body" id="ganttBody">
+                <svg class="gantt-arrows" id="ganttArrows"></svg>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Edit Modal -->
+<div class="modal-overlay" id="editModalOverlay">
+    <div class="modal">
+        <h2 id="editModalTitle">Edit</h2>
+        <div class="modal-grid" id="editModalGrid"></div>
+        <div class="modal-actions">
+            <button class="secondary" id="editCancelBtn">Cancel</button>
+            <button id="editSaveBtn">Save</button>
+        </div>
+    </div>
+</div>
+
+<!-- Add Dependency Modal -->
+<div class="modal-overlay" id="depModalOverlay">
+    <div class="modal">
+        <h2>Add Dependency</h2>
+        <div class="modal-grid">
+            <label>Depends on:</label>
+            <select id="depTargetSelect"></select>
+        </div>
+        <div class="modal-actions">
+            <button class="secondary" id="depCancelBtn">Cancel</button>
+            <button id="depAddBtn">Add</button>
+        </div>
+    </div>
+</div>
+
+<!-- Help Overlay -->
+<div class="help-overlay" id="helpOverlay">
+    <div class="help-content">
+        <h2>Keyboard Shortcuts</h2>
+        <table>
+            <tr><th>Key</th><th>Action</th></tr>
+            <tr><td><kbd>↑</kbd> <kbd>↓</kbd></td><td>Navigate tree</td></tr>
+            <tr><td><kbd>←</kbd> <kbd>→</kbd></td><td>Collapse / Expand</td></tr>
+            <tr><td><kbd>Enter</kbd></td><td>Toggle expand/collapse</td></tr>
+            <tr><td><kbd>E</kbd></td><td>Edit selected item</td></tr>
+            <tr><td><kbd>Delete</kbd></td><td>Delete selected item</td></tr>
+            <tr><td><kbd>S</kbd></td><td>Run scheduler</td></tr>
+            <tr><td><kbd>D</kbd></td><td>Add dependency</td></tr>
+            <tr><td><kbd>T</kbd></td><td>Add task</td></tr>
+            <tr><td><kbd>P</kbd></td><td>Add project</td></tr>
+            <tr><td><kbd>M</kbd></td><td>Add milestone</td></tr>
+            <tr><td><kbd>?</kbd></td><td>Toggle this help</td></tr>
+            <tr><td><kbd>Escape</kbd></td><td>Close modal / Deselect</td></tr>
+        </table>
+        <div style="margin-top:12px; text-align:right;">
+            <button onclick="document.getElementById('helpOverlay').classList.remove('active')">Close</button>
+        </div>
+    </div>
+</div>
+
+<script src="huginn_data.js"></script>
+<script>
+// ============================
+// Huginn Plan v1.0
+// ============================
+
+// --- App State ---
+let data = null;
+let selectedId = null;
+let selectedType = null; // 'project','task','event'
+let expandedProjects = new Set();
+let schedulerResult = null;
+let ganttZoom = 'week';
+let filterText = '';
+let layerFilter = '';
+let treeNodeOrder = []; // flat list of visible nodes for keyboard nav
+
+// --- DOM Refs ---
+const treePanel = document.getElementById('treePanel');
+const ganttPanel = document.getElementById('ganttPanel');
+const ganttHeader = document.getElementById('ganttHeader');
+const ganttBody = document.getElementById('ganttBody');
+const ganttArrows = document.getElementById('ganttArrows');
+const conflictsBanner = document.getElementById('conflictsBanner');
+const filterInput = document.getElementById('filterInput');
+const layerFilterSel = document.getElementById('layerFilter');
+const ganttZoomSel = document.getElementById('ganttZoom');
+const editModalOverlay = document.getElementById('editModalOverlay');
+const editModalTitle = document.getElementById('editModalTitle');
+const editModalGrid = document.getElementById('editModalGrid');
+const depModalOverlay = document.getElementById('depModalOverlay');
+const depTargetSelect = document.getElementById('depTargetSelect');
+const fileInput = document.getElementById('fileInput');
+
+// --- Constants ---
+const ROW_H = 29;
+const DAY_MS = 86400000;
+
+// =====================================
+// DATA
+// =====================================
+function initData() {
+    data = HuginnData.loadFromLocalStorage();
+    if (data.tasks.length === 0 && data.projects.length === 0) {
+        data = HuginnData.migrateAllLegacyData();
+    }
+    const { project: p, newEntities } = HuginnData.ensurePersonalProject(data);
+    if (newEntities) {
+        data.projects.push(newEntities.project);
+        data.events.push(newEntities.startEvent, newEntities.endEvent);
+        data.tasks.push(newEntities.defaultTask);
+        data.dependencies.push(...newEntities.dependencies);
+        save();
+    }
+    // Expand all projects by default on first load
+    data.projects.forEach(p => expandedProjects.add(p.id));
+}
+
+function save() { HuginnData.saveToLocalStorage(data); }
+
+// =====================================
+// UTILITY
+// =====================================
+function entityName(id, type) {
+    if (type === 'task') { const t = HuginnData.findById(data.tasks, id); return t ? t.text : '?'; }
+    if (type === 'event') { const e = HuginnData.findById(data.events, id); return e ? (e.name || e.type) : '?'; }
+    if (type === 'project') { const p = HuginnData.findById(data.projects, id); return p ? p.name : '?'; }
+    return '?';
+}
+
+function getProjectForSelection() {
+    if (selectedType === 'project') return HuginnData.findById(data.projects, selectedId);
+    if (selectedType === 'task') {
+        const t = HuginnData.findById(data.tasks, selectedId);
+        return t ? HuginnData.findById(data.projects, t.projectId) : null;
+    }
+    if (selectedType === 'event') {
+        const e = HuginnData.findById(data.events, selectedId);
+        return e ? HuginnData.findById(data.projects, e.projectId) : null;
+    }
+    return null;
+}
+
+function matchesFilter(text) {
+    if (!filterText) return true;
+    return text.toLowerCase().includes(filterText.toLowerCase());
+}
+
+function projectMatchesFilter(projectId) {
+    const p = HuginnData.findById(data.projects, projectId);
+    if (!p) return false;
+    if (matchesFilter(p.name)) return true;
+    const tasks = HuginnData.getTasksForProject(projectId, data.tasks);
+    if (tasks.some(t => matchesFilter(t.text) || matchesFilter(t.description))) return true;
+    const events = HuginnData.getEventsForProject(projectId, data.events);
+    if (events.some(e => matchesFilter(e.name || e.type))) return true;
+    const children = HuginnData.getChildProjects(projectId, data.projects);
+    return children.some(c => projectMatchesFilter(c.id));
+}
+
+function projectMatchesLayerFilter(project) {
+    if (!layerFilter) return true;
+    return project.layer <= parseInt(layerFilter);
+}
+
+// =====================================
+// TREE RENDERING
+// =====================================
+function renderTree() {
+    treePanel.innerHTML = '';
+    treeNodeOrder = [];
+    const rootProjects = data.projects.filter(p => p.parentId === null);
+    rootProjects.sort((a, b) => a.name.localeCompare(b.name));
+    rootProjects.forEach(p => {
+        if (filterText && !projectMatchesFilter(p.id)) return;
+        renderProjectNode(p, treePanel);
+    });
+}
+
+function renderProjectNode(project, container) {
+    if (!projectMatchesLayerFilter(project)) return;
+    const node = document.createElement('div');
+    node.className = 'tree-node';
+
+    const row = document.createElement('div');
+    row.className = 'tree-row type-project';
+    if (selectedType === 'project' && selectedId === project.id) row.classList.add('selected');
+    if (schedulerResult && schedulerResult.criticalPath.has(project.id)) row.classList.add('critical-path');
+
+    const isExpanded = expandedProjects.has(project.id);
+    const children = HuginnData.getChildProjects(project.id, data.projects);
+    const tasks = HuginnData.getTasksForProject(project.id, data.tasks);
+    const events = HuginnData.getEventsForProject(project.id, data.events)
+        .filter(e => e.type === 'milestone' && e.id !== project.startEventId && e.id !== project.endEventId);
+    const hasChildren = children.length > 0 || tasks.length > 0 || events.length > 0;
+
+    row.innerHTML = `
+        <span class="tree-toggle">${hasChildren ? (isExpanded ? '▼' : '▶') : '·'}</span>
+        <span class="tree-icon">📁</span>
+        <span class="tree-label">${esc(project.name)}</span>
+        <span class="tree-layer">L${project.layer}</span>
+        <span class="tree-meta">${tasks.length}t ${children.length}p</span>
+    `;
+
+    row.onclick = (e) => {
+        if (e.target.classList.contains('tree-toggle') && hasChildren) {
+            toggleExpand(project.id); return;
+        }
+        selectItem(project.id, 'project');
+    };
+    row.ondblclick = () => { if (hasChildren) toggleExpand(project.id); };
+
+    const nodeData = { id: project.id, type: 'project' };
+    treeNodeOrder.push(nodeData);
+    row._nodeData = nodeData;
+    node.appendChild(row);
+
+    const childContainer = document.createElement('div');
+    childContainer.className = 'tree-children' + (isExpanded ? '' : ' collapsed');
+
+    if (isExpanded) {
+        // Milestones
+        events.sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+        events.forEach(ev => {
+            if (filterText && !matchesFilter(ev.name || ev.type)) return;
+            const evRow = createEventRow(ev);
+            childContainer.appendChild(evRow);
+        });
+
+        // Tasks
+        tasks.sort((a, b) => a.order - b.order);
+        tasks.forEach(task => {
+            if (filterText && !matchesFilter(task.text) && !matchesFilter(task.description)) return;
+            const taskRow = createTaskRow(task);
+            childContainer.appendChild(taskRow);
+        });
+
+        // Subprojects
+        children.sort((a, b) => a.name.localeCompare(b.name));
+        children.forEach(child => {
+            if (filterText && !projectMatchesFilter(child.id)) return;
+            renderProjectNode(child, childContainer);
+        });
+    }
+
+    node.appendChild(childContainer);
+    container.appendChild(node);
+}
+
+function createTaskRow(task) {
+    const div = document.createElement('div');
+    div.className = `tree-row status-${task.status}`;
+    if (selectedType === 'task' && selectedId === task.id) div.classList.add('selected');
+    if (HuginnData.isRunningLate(task)) div.classList.add('running-late');
+    if (schedulerResult && schedulerResult.criticalPath.has(task.id)) div.classList.add('critical-path');
+
+    const statusIcon = { new: '○', started: '◐', done: '●', stopped: '✕' }[task.status] || '○';
+    const dateInfo = task.scheduledStart || task.nextActionDate || '';
+    div.innerHTML = `
+        <span class="tree-toggle">·</span>
+        <span class="tree-icon">${statusIcon}</span>
+        <span class="tree-label">${esc(task.text)}</span>
+        <span class="tree-meta">${task.estimatedDurationDays}d ${dateInfo}</span>
+    `;
+    div.onclick = () => selectItem(task.id, 'task');
+    const nodeData = { id: task.id, type: 'task' };
+    treeNodeOrder.push(nodeData);
+    div._nodeData = nodeData;
+    return div;
+}
+
+function createEventRow(ev) {
+    const div = document.createElement('div');
+    div.className = 'tree-row type-milestone';
+    if (selectedType === 'event' && selectedId === ev.id) div.classList.add('selected');
+    if (schedulerResult && schedulerResult.criticalPath.has(ev.id)) div.classList.add('critical-path');
+
+    const dateInfo = ev.scheduledDate || ev.date || '';
+    div.innerHTML = `
+        <span class="tree-toggle">·</span>
+        <span class="tree-icon">◆</span>
+        <span class="tree-label">${esc(ev.name || ev.type)}</span>
+        <span class="tree-meta">${dateInfo}</span>
+    `;
+    div.onclick = () => selectItem(ev.id, 'event');
+    const nodeData = { id: ev.id, type: 'event' };
+    treeNodeOrder.push(nodeData);
+    div._nodeData = nodeData;
+    return div;
+}
+
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+function toggleExpand(projectId) {
+    if (expandedProjects.has(projectId)) expandedProjects.delete(projectId);
+    else expandedProjects.add(projectId);
+    renderAll();
+}
+
+function selectItem(id, type) {
+    selectedId = id;
+    selectedType = type;
+    renderAll();
+}
+
+// =====================================
+// GANTT CHART
+// =====================================
+function getGanttDateRange() {
+    const today = new Date(HuginnData.getTodayDateString());
+    let minDate = new Date(today); minDate.setDate(minDate.getDate() - 14);
+    let maxDate = new Date(today); maxDate.setDate(maxDate.getDate() + 90);
+
+    // Expand range based on actual task dates
+    data.tasks.forEach(t => {
+        const s = t.scheduledStart || t.startDate || t.nextActionDate;
+        const e = t.scheduledEnd || t.endDate || t.deadline;
+        if (s) { const d = new Date(s); if (d < minDate) minDate = new Date(d.getTime() - 7 * DAY_MS); }
+        if (e) { const d = new Date(e); if (d > maxDate) maxDate = new Date(d.getTime() + 14 * DAY_MS); }
+    });
+    data.events.forEach(e => {
+        const d = e.scheduledDate || e.date;
+        if (d) {
+            const dt = new Date(d);
+            if (dt < minDate) minDate = new Date(dt.getTime() - 7 * DAY_MS);
+            if (dt > maxDate) maxDate = new Date(dt.getTime() + 14 * DAY_MS);
+        }
+    });
+    return { minDate, maxDate };
+}
+
+function getCellWidth() {
+    if (ganttZoom === 'day') return 28;
+    if (ganttZoom === 'week') return 14;
+    return 5;
+}
+
+function renderGantt() {
+    const { minDate, maxDate } = getGanttDateRange();
+    const cellW = getCellWidth();
+    const totalDays = Math.ceil((maxDate - minDate) / DAY_MS) + 1;
+    const totalWidth = totalDays * cellW;
+    const todayStr = HuginnData.getTodayDateString();
+
+    // Header
+    ganttHeader.innerHTML = '';
+    ganttHeader.style.width = totalWidth + 'px';
+    for (let i = 0; i < totalDays; i++) {
+        const d = new Date(minDate.getTime() + i * DAY_MS);
+        const cell = document.createElement('div');
+        cell.className = 'gantt-header-cell';
+        cell.style.width = cellW + 'px';
+        const dateStr = d.toISOString().split('T')[0];
+        const dow = d.getDay();
+        if (dow === 0 || dow === 6) cell.classList.add('weekend');
+        if (dateStr === todayStr) cell.classList.add('today');
+
+        if (ganttZoom === 'day') {
+            cell.textContent = String(d.getDate());
+            if (d.getDate() === 1 || i === 0) cell.title = dateStr;
+        } else if (ganttZoom === 'week') {
+            if (dow === 1 || i === 0) cell.textContent = String(d.getDate());
+        } else {
+            if (d.getDate() === 1) cell.textContent = d.toLocaleString('en', { month: 'short' });
+        }
+        cell.title = dateStr;
+        ganttHeader.appendChild(cell);
+    }
+
+    // Body
+    ganttBody.innerHTML = '';
+    ganttBody.style.width = totalWidth + 'px';
+    const arrowsSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    arrowsSvg.setAttribute('class', 'gantt-arrows');
+    arrowsSvg.style.width = totalWidth + 'px';
+
+    // Build flat list of gantt rows matching tree order
+    const ganttRows = [];
+    const nodePositions = new Map(); // id -> { y, x, w }
+
+    treeNodeOrder.forEach((node, idx) => {
+        const rowDiv = document.createElement('div');
+        rowDiv.className = 'gantt-row';
+        rowDiv.style.height = ROW_H + 'px';
+        const y = idx * ROW_H;
+
+        if (node.type === 'task') {
+            const task = HuginnData.findById(data.tasks, node.id);
+            if (!task) { ganttBody.appendChild(rowDiv); return; }
+
+            const startStr = task.scheduledStart || task.startDate || task.nextActionDate || todayStr;
+            const durDays = task.estimatedDurationDays || 1;
+            const startD = new Date(startStr);
+            const endD = new Date(startD.getTime() + durDays * DAY_MS);
+
+            const x = Math.round((startD - minDate) / DAY_MS * cellW);
+            const w = Math.max(durDays * cellW, cellW);
+
+            // Available window for non-critical tasks
+            if (schedulerResult && schedulerResult.info) {
+                const key = `task:${task.id}`;
+                const info = schedulerResult.info.get(key);
+                if (info && info.float > DAY_MS * 0.5) {
+                    const awX = Math.round((info.earliest - minDate.getTime()) / DAY_MS * cellW);
+                    const awW = Math.round((info.latest + info.duration - info.earliest) / DAY_MS * cellW);
+                    const awDiv = document.createElement('div');
+                    awDiv.className = 'gantt-available-window';
+                    awDiv.style.left = awX + 'px';
+                    awDiv.style.width = Math.max(awW, cellW) + 'px';
+                    rowDiv.appendChild(awDiv);
+                }
+            }
+
+            const bar = document.createElement('div');
+            bar.className = 'gantt-bar task-bar';
+            if (task.status === 'done' || task.status === 'stopped') bar.classList.add('done');
+            else if (HuginnData.isRunningLate(task)) bar.classList.add('late');
+            else if (schedulerResult && schedulerResult.criticalPath.has(task.id)) bar.classList.add('critical');
+            if (selectedType === 'task' && selectedId === task.id) bar.classList.add('selected');
+            bar.style.left = x + 'px';
+            bar.style.width = w + 'px';
+            bar.textContent = task.text;
+            bar.title = `${task.text}\n${startStr} → ${endD.toISOString().split('T')[0]} (${durDays}d)`;
+            bar.onclick = () => selectItem(task.id, 'task');
+            rowDiv.appendChild(bar);
+
+            nodePositions.set(`task:${task.id}`, { y: y + ROW_H / 2, x: x, w: w });
+        } else if (node.type === 'event') {
+            const ev = HuginnData.findById(data.events, node.id);
+            if (!ev || ev.type !== 'milestone') { ganttBody.appendChild(rowDiv); return; }
+
+            const dateStr = ev.scheduledDate || ev.date || todayStr;
+            const dateD = new Date(dateStr);
+            const x = Math.round((dateD - minDate) / DAY_MS * cellW) - 7;
+
+            const diamond = document.createElement('div');
+            diamond.className = 'gantt-milestone';
+            if (schedulerResult && schedulerResult.criticalPath.has(ev.id)) diamond.classList.add('critical');
+            else diamond.classList.add('normal');
+            if (selectedType === 'event' && selectedId === ev.id) diamond.classList.add('selected');
+            diamond.style.left = x + 'px';
+            diamond.title = `${ev.name || ev.type}\n${dateStr}`;
+            diamond.onclick = () => selectItem(ev.id, 'event');
+            rowDiv.appendChild(diamond);
+
+            nodePositions.set(`event:${ev.id}`, { y: y + ROW_H / 2, x: x + 7, w: 0 });
+        } else if (node.type === 'project') {
+            // Collapsed project → show as summary bar
+            const proj = HuginnData.findById(data.projects, node.id);
+            if (proj && !expandedProjects.has(proj.id)) {
+                const startEv = HuginnData.findById(data.events, proj.startEventId);
+                const endEv = HuginnData.findById(data.events, proj.endEventId);
+                const s = startEv ? (startEv.scheduledDate || startEv.date) : null;
+                const e = endEv ? (endEv.scheduledDate || endEv.date) : null;
+                if (s && e) {
+                    const sD = new Date(s), eD = new Date(e);
+                    const x = Math.round((sD - minDate) / DAY_MS * cellW);
+                    const w = Math.max(Math.round((eD - sD) / DAY_MS * cellW), cellW);
+                    const bar = document.createElement('div');
+                    bar.className = 'gantt-bar task-bar';
+                    if (selectedType === 'project' && selectedId === proj.id) bar.classList.add('selected');
+                    bar.style.left = x + 'px'; bar.style.width = w + 'px';
+                    bar.style.background = '#A27B5C'; bar.style.height = '10px'; bar.style.top = '9px';
+                    bar.style.borderRadius = '0';
+                    bar.textContent = proj.name;
+                    bar.title = `${proj.name}\n${s} → ${e}`;
+                    bar.onclick = () => selectItem(proj.id, 'project');
+                    rowDiv.appendChild(bar);
+                }
+            }
+        }
+        ganttBody.appendChild(rowDiv);
+    });
+
+    // Set body height
+    ganttBody.style.height = (treeNodeOrder.length * ROW_H) + 'px';
+    arrowsSvg.style.height = ganttBody.style.height;
+
+    // Dependency arrows
+    const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+    defs.innerHTML = '<marker id="arrowhead" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#8b7e74"/></marker>';
+    arrowsSvg.appendChild(defs);
+
+    data.dependencies.forEach(dep => {
+        const fromPos = nodePositions.get(`${dep.fromType}:${dep.fromId}`);
+        const toPos = nodePositions.get(`${dep.toType}:${dep.toId}`);
+        if (!fromPos || !toPos) return;
+
+        const x1 = fromPos.x + fromPos.w;
+        const y1 = fromPos.y;
+        const x2 = toPos.x;
+        const y2 = toPos.y;
+
+        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        const midX = (x1 + x2) / 2;
+        path.setAttribute('d', `M${x1},${y1} C${midX},${y1} ${midX},${y2} ${x2},${y2}`);
+        path.setAttribute('fill', 'none');
+        path.setAttribute('stroke', '#8b7e74');
+        path.setAttribute('stroke-width', '1.5');
+        path.setAttribute('marker-end', 'url(#arrowhead)');
+        path.setAttribute('opacity', '0.6');
+        arrowsSvg.appendChild(path);
+    });
+
+    ganttBody.appendChild(arrowsSvg);
+
+    // Today line
+    const todayX = Math.round((new Date(todayStr) - minDate) / DAY_MS * cellW);
+    const todayLine = document.createElement('div');
+    todayLine.className = 'gantt-today-line';
+    todayLine.style.left = todayX + 'px';
+    ganttBody.appendChild(todayLine);
+
+    // Scroll to today
+    const panelW = ganttPanel.clientWidth;
+    ganttPanel.scrollLeft = Math.max(0, todayX - panelW / 3);
+}
+
+// =====================================
+// RENDER ALL
+// =====================================
+function renderAll() {
+    filterText = filterInput.value.trim();
+    layerFilter = layerFilterSel.value;
+    ganttZoom = ganttZoomSel.value;
+    updateLayerOptions();
+    renderTree();
+    renderGantt();
+}
+
+function updateLayerOptions() {
+    const maxLayer = data.projects.reduce((m, p) => Math.max(m, p.layer), 1);
+    const current = layerFilterSel.value;
+    layerFilterSel.innerHTML = '<option value="">All Layers</option>';
+    for (let i = 1; i <= maxLayer; i++) {
+        const opt = document.createElement('option');
+        opt.value = String(i); opt.textContent = `Up to L${i}`;
+        layerFilterSel.appendChild(opt);
+    }
+    layerFilterSel.value = current;
+}
+
+// =====================================
+// CRUD OPERATIONS
+// =====================================
+function addProject(parentId) {
+    const name = prompt('Project name:');
+    if (!name || !name.trim()) return;
+    const result = HuginnData.createProject(name.trim(), parentId || null, data);
+    data.projects.push(result.project);
+    data.events.push(result.startEvent, result.endEvent);
+    data.tasks.push(result.defaultTask);
+    data.dependencies.push(...result.dependencies);
+    expandedProjects.add(result.project.id);
+    if (parentId) expandedProjects.add(parentId);
+    save(); selectItem(result.project.id, 'project'); renderAll();
+}
+
+function addTask() {
+    const proj = getProjectForSelection();
+    if (!proj) { alert('Select a project first.'); return; }
+    openEditModalForNew('task', proj.id);
+}
+
+function addMilestone() {
+    const proj = getProjectForSelection();
+    if (!proj) { alert('Select a project first.'); return; }
+    openEditModalForNew('event', proj.id);
+}
+
+function deleteSelected() {
+    if (!selectedId) return;
+    if (selectedType === 'project') {
+        const p = HuginnData.findById(data.projects, selectedId);
+        if (!p) return;
+        if (p.name === HuginnData.PERSONAL_PROJECT_NAME && !p.parentId) {
+            alert('Cannot delete Personal Tasks project.'); return;
+        }
+        if (!confirm(`Delete project "${p.name}" and ALL contents?`)) return;
+        HuginnData.deleteProject(selectedId, data);
+    } else if (selectedType === 'task') {
+        const t = HuginnData.findById(data.tasks, selectedId);
+        if (!t) return;
+        if (!confirm(`Delete task "${t.text}"?`)) return;
+        // Check if this is a default task for a project
+        const ownerProj = data.projects.find(p => p.defaultTaskId === t.id);
+        if (ownerProj) { alert('Cannot delete default task. Delete the project instead or flatten it.'); return; }
+        data.dependencies = data.dependencies.filter(d =>
+            !(d.fromId === t.id && d.fromType === 'task') && !(d.toId === t.id && d.toType === 'task'));
+        data.timekeeping.activities = data.timekeeping.activities.filter(a => a.taskId !== t.id);
+        data.tasks = data.tasks.filter(tt => tt.id !== t.id);
+    } else if (selectedType === 'event') {
+        const e = HuginnData.findById(data.events, selectedId);
+        if (!e) return;
+        // Don't delete start/end milestones
+        const ownerProj = data.projects.find(p => p.startEventId === e.id || p.endEventId === e.id);
+        if (ownerProj) { alert('Cannot delete project start/end milestone. Delete the project instead.'); return; }
+        if (!confirm(`Delete milestone "${e.name || e.type}"?`)) return;
+        data.dependencies = data.dependencies.filter(d =>
+            !(d.fromId === e.id && d.fromType === 'event') && !(d.toId === e.id && d.toType === 'event'));
+        data.events = data.events.filter(ev => ev.id !== e.id);
+    }
+    selectedId = null; selectedType = null;
+    save(); renderAll();
+}
+
+function doBreakdown() {
+    if (selectedType !== 'task') { alert('Select a task to break down.'); return; }
+    const ownerProj = data.projects.find(p => p.defaultTaskId === selectedId);
+    if (ownerProj) { alert('Cannot break down a default task. Add a new task to this project instead.'); return; }
+    const proj = HuginnData.breakdownTaskToProject(selectedId, data);
+    if (proj) {
+        expandedProjects.add(proj.id);
+        selectedId = proj.id; selectedType = 'project';
+        save(); renderAll();
+    }
+}
+
+function doFlatten() {
+    if (selectedType !== 'project') { alert('Select a project to flatten.'); return; }
+    const p = HuginnData.findById(data.projects, selectedId);
+    if (p && p.name === HuginnData.PERSONAL_PROJECT_NAME && !p.parentId) {
+        alert('Cannot flatten Personal Tasks.'); return;
+    }
+    if (!confirm(`Flatten "${p.name}"? Children will be moved to parent.`)) return;
+    const task = HuginnData.flattenProject(selectedId, data);
+    if (task) { selectedId = task.id; selectedType = 'task'; }
+    else { selectedId = null; selectedType = null; }
+    save(); renderAll();
+}
+
+function doGroup() {
+    alert('To group: Select multiple tasks (not yet implemented — use Breakdown for single tasks).');
+}
+
+// =====================================
+// EDIT MODAL
+// =====================================
+let editingEntity = null;
+let editingEntityType = null;
+
+function openEditModalForNew(type, projectId) {
+    editingEntity = null;
+    editingEntityType = type;
+    if (type === 'task') {
+        editModalTitle.textContent = 'New Task';
+        editModalGrid.innerHTML = buildTaskForm({ projectId, status: 'new', estimatedDurationDays: 1, effort: 1, order: 0 });
+    } else if (type === 'event') {
+        editModalTitle.textContent = 'New Milestone';
+        editModalGrid.innerHTML = buildEventForm({ projectId, type: 'milestone', dateType: 'flexible' });
+    }
+    editModalOverlay.classList.add('active');
+    const firstInput = editModalGrid.querySelector('input,select,textarea');
+    if (firstInput) firstInput.focus();
+}
+
+function openEditModal() {
+    if (!selectedId) return;
+    editingEntityType = selectedType;
+    if (selectedType === 'task') {
+        editingEntity = HuginnData.findById(data.tasks, selectedId);
+        if (!editingEntity) return;
+        editModalTitle.textContent = 'Edit Task';
+        editModalGrid.innerHTML = buildTaskForm(editingEntity);
+    } else if (selectedType === 'event') {
+        editingEntity = HuginnData.findById(data.events, selectedId);
+        if (!editingEntity) return;
+        editModalTitle.textContent = 'Edit Milestone';
+        editModalGrid.innerHTML = buildEventForm(editingEntity);
+    } else if (selectedType === 'project') {
+        editingEntity = HuginnData.findById(data.projects, selectedId);
+        if (!editingEntity) return;
+        editModalTitle.textContent = 'Edit Project';
+        editModalGrid.innerHTML = buildProjectForm(editingEntity);
+    }
+    editModalOverlay.classList.add('active');
+    const firstInput = editModalGrid.querySelector('input,select,textarea');
+    if (firstInput) firstInput.focus();
+}
+
+function buildProjectOptions(currentProjectId) {
+    let html = '<option value="null">— None (Root) —</option>';
+    data.projects.forEach(p => {
+        if (p.id === currentProjectId) return;
+        const sel = '';
+        html += `<option value="${p.id}">${esc(HuginnData.getProjectPath(p.id, data.projects))}</option>`;
+    });
+    return html;
+}
+
+function buildTaskForm(t) {
+    const projOpts = buildProjectOptions(null);
+    const projVal = t.projectId != null ? t.projectId : 'null';
+    return `
+        <label>Task:</label><input type="text" id="mText" value="${esc(t.text || '')}">
+        <label>Description:</label><textarea id="mDesc">${esc(t.description || '')}</textarea>
+        <label>Project:</label><select id="mProject">${projOpts}</select>
+        <label>Status:</label><select id="mStatus">
+            ${HuginnData.TASK_STATUSES.map(s => `<option value="${s}"${s===t.status?' selected':''}>${s}</option>`).join('')}
+        </select>
+        <label>Est. Days:</label><input type="number" id="mDuration" min="1" value="${t.estimatedDurationDays || 1}">
+        <label>Effort:</label><input type="number" id="mEffort" min="1" value="${t.effort || 1}">
+        <label>Order:</label><input type="number" id="mOrder" step="any" value="${t.order || 0}">
+        <label>Next Action:</label><input type="date" id="mNextAction" value="${t.nextActionDate || ''}">
+        <label>Deadline:</label><input type="date" id="mDeadline" value="${t.deadline || ''}">
+        <label>Start Date:</label><input type="date" id="mStartDate" value="${t.startDate || ''}">
+        <label>Start Type:</label><select id="mStartDateType">
+            ${HuginnData.DATE_TYPES.map(d => `<option value="${d}"${d===(t.startDateType||'flexible')?' selected':''}>${d}</option>`).join('')}
+        </select>
+        <label>End Date:</label><input type="date" id="mEndDate" value="${t.endDate || ''}">
+        <label>End Type:</label><select id="mEndDateType">
+            ${HuginnData.DATE_TYPES.map(d => `<option value="${d}"${d===(t.endDateType||'flexible')?' selected':''}>${d}</option>`).join('')}
+        </select>
+    `;
+    // Set project selection after render
+    setTimeout(() => { const sel = document.getElementById('mProject'); if (sel) sel.value = String(projVal); }, 0);
+}
+
+function buildEventForm(e) {
+    return `
+        <label>Name:</label><input type="text" id="mName" value="${esc(e.name || '')}">
+        <label>Type:</label><select id="mType">
+            ${HuginnData.EVENT_TYPES.map(t => `<option value="${t}"${t===e.type?' selected':''}>${t}</option>`).join('')}
+        </select>
+        <label>Date:</label><input type="date" id="mDate" value="${e.date || ''}">
+        <label>Date Type:</label><select id="mDateType">
+            ${HuginnData.DATE_TYPES.map(d => `<option value="${d}"${d===(e.dateType||'flexible')?' selected':''}>${d}</option>`).join('')}
+        </select>
+    `;
+}
+
+function buildProjectForm(p) {
+    const projOpts = buildProjectOptions(p.id);
+    return `
+        <label>Name:</label><input type="text" id="mName" value="${esc(p.name)}">
+        <label>Parent:</label><select id="mParent">${projOpts}</select>
+    `;
+    setTimeout(() => { const sel = document.getElementById('mParent'); if (sel) sel.value = String(p.parentId || 'null'); }, 0);
+}
+
+function saveEditModal() {
+    if (editingEntityType === 'task') {
+        const text = document.getElementById('mText').value.trim();
+        if (!text) return;
+        const fields = {
+            text, description: document.getElementById('mDesc').value.trim(),
+            projectId: document.getElementById('mProject').value === 'null' ? null : Number(document.getElementById('mProject').value),
+            estimatedDurationDays: Math.max(1, parseInt(document.getElementById('mDuration').value) || 1),
+            effort: Math.max(1, parseInt(document.getElementById('mEffort').value) || 1),
+            order: parseFloat(document.getElementById('mOrder').value) || 0,
+            nextActionDate: document.getElementById('mNextAction').value || null,
+            deadline: document.getElementById('mDeadline').value || null,
+            startDate: document.getElementById('mStartDate').value || null,
+            startDateType: document.getElementById('mStartDateType').value,
+            endDate: document.getElementById('mEndDate').value || null,
+            endDateType: document.getElementById('mEndDateType').value
+        };
+        const newStatus = document.getElementById('mStatus').value;
+
+        if (editingEntity) {
+            Object.assign(editingEntity, fields);
+            if (editingEntity.status !== newStatus) HuginnData.setTaskStatus(editingEntity, newStatus);
+        } else {
+            const task = HuginnData.addTaskToProject({ ...fields, status: newStatus }, fields.projectId, data);
+            selectedId = task.id; selectedType = 'task';
+        }
+    } else if (editingEntityType === 'event') {
+        const name = document.getElementById('mName').value.trim();
+        const evFields = {
+            name, type: document.getElementById('mType').value,
+            date: document.getElementById('mDate').value || null,
+            dateType: document.getElementById('mDateType').value
+        };
+        if (editingEntity) {
+            Object.assign(editingEntity, evFields);
+        } else {
+            const proj = getProjectForSelection();
+            const ev = HuginnData.normalizeEvent({ id: HuginnData.generateId(), projectId: proj ? proj.id : null, ...evFields });
+            data.events.push(ev);
+            selectedId = ev.id; selectedType = 'event';
+        }
+    } else if (editingEntityType === 'project') {
+        const name = document.getElementById('mName').value.trim();
+        if (!name) return;
+        const parentVal = document.getElementById('mParent').value;
+        const newParentId = parentVal === 'null' ? null : Number(parentVal);
+        if (editingEntity) {
+            editingEntity.name = name;
+            editingEntity.parentId = newParentId;
+            HuginnData.recomputeLayers(data);
+        }
+    }
+    editModalOverlay.classList.remove('active');
+    save(); renderAll();
+}
+
+// =====================================
+// DEPENDENCY MODAL
+// =====================================
+function openDepModal() {
+    if (!selectedId) return;
+    depTargetSelect.innerHTML = '';
+    // List all tasks and milestones as potential predecessors
+    data.tasks.forEach(t => {
+        if (t.id === selectedId && selectedType === 'task') return;
+        const opt = document.createElement('option');
+        opt.value = `task:${t.id}`;
+        opt.textContent = `[Task] ${t.text}`;
+        depTargetSelect.appendChild(opt);
+    });
+    data.events.filter(e => e.type === 'milestone').forEach(e => {
+        if (e.id === selectedId && selectedType === 'event') return;
+        const opt = document.createElement('option');
+        opt.value = `event:${e.id}`;
+        opt.textContent = `[Milestone] ${e.name || e.type}`;
+        depTargetSelect.appendChild(opt);
+    });
+    depModalOverlay.classList.add('active');
+}
+
+function addDependency() {
+    const val = depTargetSelect.value;
+    if (!val) return;
+    const [fromType, fromIdStr] = val.split(':');
+    const fromId = Number(fromIdStr);
+    // Dependency: selected depends on chosen → chosen (from) → selected (to)
+    const dep = HuginnData.normalizeDependency({
+        id: HuginnData.generateId(), fromId, fromType, toId: selectedId, toType: selectedType, type: 'finish-to-start'
+    });
+    data.dependencies.push(dep);
+    depModalOverlay.classList.remove('active');
+    save(); renderAll();
+}
+
+// =====================================
+// SCHEDULER UI
+// =====================================
+function runSchedule() {
+    schedulerResult = HuginnData.runScheduler(data);
+    if (schedulerResult.conflicts.length > 0) {
+        conflictsBanner.textContent = '⚠️ Scheduling conflicts: ' +
+            schedulerResult.conflicts.map(c => c.message).join('; ');
+        conflictsBanner.classList.add('active');
+    } else {
+        conflictsBanner.textContent = '';
+        conflictsBanner.classList.remove('active');
+    }
+    save(); renderAll();
+}
+
+// =====================================
+// IMPORT / EXPORT
+// =====================================
+function doImport() { fileInput.click(); }
+fileInput.addEventListener('change', () => {
+    HuginnData.importFromJSON(fileInput.files[0], (err, imported) => {
+        if (err) { alert('Import error: ' + err.message); return; }
+        data = imported;
+        data.projects.forEach(p => expandedProjects.add(p.id));
+        save(); renderAll();
+        fileInput.value = '';
+    });
+});
+
+function doExportJSON() { HuginnData.exportToJSON(data); }
+
+function doExportCSV() {
+    const rows = [];
+    const headers = ['Type', 'Name', 'Project', 'Status', 'Duration', 'Start', 'End', 'Layer'];
+    treeNodeOrder.forEach(node => {
+        if (node.type === 'task') {
+            const t = HuginnData.findById(data.tasks, node.id);
+            if (!t) return;
+            rows.push({ Type: 'Task', Name: t.text, Project: HuginnData.getProjectPath(t.projectId, data.projects),
+                Status: t.status, Duration: t.estimatedDurationDays + 'd',
+                Start: t.scheduledStart || t.startDate || '', End: t.scheduledEnd || t.endDate || '', Layer: '' });
+        } else if (node.type === 'event') {
+            const e = HuginnData.findById(data.events, node.id);
+            if (!e) return;
+            rows.push({ Type: 'Milestone', Name: e.name || e.type, Project: HuginnData.getProjectPath(e.projectId, data.projects),
+                Status: '', Duration: '', Start: e.scheduledDate || e.date || '', End: '', Layer: '' });
+        } else if (node.type === 'project') {
+            const p = HuginnData.findById(data.projects, node.id);
+            if (!p) return;
+            rows.push({ Type: 'Project', Name: p.name, Project: HuginnData.getProjectPath(p.parentId, data.projects),
+                Status: '', Duration: '', Start: '', End: '', Layer: 'L' + p.layer });
+        }
+    });
+    HuginnData.exportToCSV(rows, headers, `huginn_plan_${HuginnData.getTodayDateString()}.csv`);
+}
+
+// =====================================
+// PANEL RESIZER
+// =====================================
+const divider = document.getElementById('panelDivider');
+let isResizing = false;
+divider.addEventListener('mousedown', (e) => {
+    isResizing = true; e.preventDefault();
+    document.body.style.cursor = 'col-resize';
+});
+document.addEventListener('mousemove', (e) => {
+    if (!isResizing) return;
+    const containerRect = document.querySelector('.main-panels').getBoundingClientRect();
+    const pct = ((e.clientX - containerRect.left) / containerRect.width) * 100;
+    treePanel.style.flex = `0 0 ${Math.max(20, Math.min(80, pct))}%`;
+});
+document.addEventListener('mouseup', () => {
+    if (isResizing) { isResizing = false; document.body.style.cursor = ''; }
+});
+
+// =====================================
+// SYNC SCROLL (tree ↔ gantt)
+// =====================================
+treePanel.addEventListener('scroll', () => { ganttBody.style.marginTop = (-treePanel.scrollTop) + 'px'; });
+
+// =====================================
+// EVENT LISTENERS
+// =====================================
+document.getElementById('addProjectBtn').onclick = () => addProject(null);
+document.getElementById('addSubprojectBtn').onclick = () => {
+    const proj = getProjectForSelection();
+    addProject(proj ? proj.id : null);
+};
+document.getElementById('addTaskBtn').onclick = addTask;
+document.getElementById('addMilestoneBtn').onclick = addMilestone;
+document.getElementById('editBtn').onclick = openEditModal;
+document.getElementById('deleteBtn').onclick = deleteSelected;
+document.getElementById('breakdownBtn').onclick = doBreakdown;
+document.getElementById('flattenBtn').onclick = doFlatten;
+document.getElementById('groupBtn').onclick = doGroup;
+document.getElementById('scheduleBtn').onclick = runSchedule;
+document.getElementById('expandAllBtn').onclick = () => { data.projects.forEach(p => expandedProjects.add(p.id)); renderAll(); };
+document.getElementById('collapseAllBtn').onclick = () => { expandedProjects.clear(); renderAll(); };
+document.getElementById('importBtn').onclick = doImport;
+document.getElementById('exportJsonBtn').onclick = doExportJSON;
+document.getElementById('exportCsvBtn').onclick = doExportCSV;
+document.getElementById('helpBtn').onclick = () => document.getElementById('helpOverlay').classList.toggle('active');
+document.getElementById('editCancelBtn').onclick = () => editModalOverlay.classList.remove('active');
+document.getElementById('editSaveBtn').onclick = saveEditModal;
+document.getElementById('depCancelBtn').onclick = () => depModalOverlay.classList.remove('active');
+document.getElementById('depAddBtn').onclick = addDependency;
+filterInput.addEventListener('input', renderAll);
+layerFilterSel.addEventListener('change', renderAll);
+ganttZoomSel.addEventListener('change', renderAll);
+
+// =====================================
+// KEYBOARD SHORTCUTS
+// =====================================
+document.addEventListener('keydown', (e) => {
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+    if (editModalOverlay.classList.contains('active') || depModalOverlay.classList.contains('active')) {
+        if (e.key === 'Escape') {
+            editModalOverlay.classList.remove('active');
+            depModalOverlay.classList.remove('active');
+        }
+        return;
+    }
+    if (document.getElementById('helpOverlay').classList.contains('active')) {
+        if (e.key === 'Escape' || e.key === '?') document.getElementById('helpOverlay').classList.remove('active');
+        return;
+    }
+
+    const idx = treeNodeOrder.findIndex(n => n.id === selectedId && n.type === selectedType);
+    switch (e.key) {
+        case 'ArrowDown': e.preventDefault();
+            if (idx < treeNodeOrder.length - 1) { const n = treeNodeOrder[idx + 1]; selectItem(n.id, n.type); } break;
+        case 'ArrowUp': e.preventDefault();
+            if (idx > 0) { const n = treeNodeOrder[idx - 1]; selectItem(n.id, n.type); } break;
+        case 'ArrowRight': e.preventDefault();
+            if (selectedType === 'project' && selectedId) { expandedProjects.add(selectedId); renderAll(); } break;
+        case 'ArrowLeft': e.preventDefault();
+            if (selectedType === 'project' && selectedId) { expandedProjects.delete(selectedId); renderAll(); } break;
+        case 'Enter': e.preventDefault();
+            if (selectedType === 'project' && selectedId) toggleExpand(selectedId); break;
+        case 'e': case 'E': e.preventDefault(); openEditModal(); break;
+        case 'Delete': case 'Backspace': if (!e.metaKey) { e.preventDefault(); deleteSelected(); } break;
+        case 's': case 'S': e.preventDefault(); runSchedule(); break;
+        case 'd': case 'D': e.preventDefault(); openDepModal(); break;
+        case 't': case 'T': e.preventDefault(); addTask(); break;
+        case 'p': case 'P': e.preventDefault(); addProject(getProjectForSelection()?.id || null); break;
+        case 'm': case 'M': e.preventDefault(); addMilestone(); break;
+        case '?': e.preventDefault(); document.getElementById('helpOverlay').classList.toggle('active'); break;
+        case 'Escape': selectedId = null; selectedType = null; renderAll(); break;
+    }
+});
+
+// Enter in modal submits
+editModalOverlay.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && e.target.tagName !== 'TEXTAREA') { e.preventDefault(); saveEditModal(); }
+});
+
+// =====================================
+// INIT
+// =====================================
+initData();
+renderAll();
+</script>
+
+<!-- Navigation Bar -->
+<nav style="position:fixed; bottom:0; left:0; right:0; background:#1c2529; border-top:1px solid #5a5a5a; padding:6px 15px; display:flex; gap:15px; justify-content:center; font-size:0.85em; z-index:999;">
+    <a href="huginn tasks v8.0.html" style="color:#A27B5C; text-decoration:none;">Tasks</a>
+    <a href="huginn cal v2.0.html" style="color:#A27B5C; text-decoration:none;">Cal</a>
+    <span style="color:#DCD7C9; font-weight:bold;">Plan</span>
+    <a href="huginn timekeeper v1.0.html" style="color:#A27B5C; text-decoration:none;">Timekeeper</a>
+</nav>
+</body>
+</html>

@@ -1,0 +1,1020 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Huginn Cal v2.0</title>
+    <style>
+        :root {
+            --bg-body: #2A3439;
+            --text-body: #1f1f1f;
+            --row-odd: #DBD7D2;
+            --row-even: #E5E9EB;
+            --header-bg: #2f4f4f;
+            --header-text: #DBD7D2;
+            --accent-teal: #008C82;
+            --accent-hover: #005f5f;
+            --border-color: #5a5a5a;
+            --selection-bg: #a8d8d4;
+
+            --cat-vacation: #558b2f;
+            --cat-overtime: #827717;
+            --cat-trip: #3949ab;
+            --cat-mobile: #546e7a;
+            --cat-sick: #c62828;
+            --cat-holiday: #7b1fa2;
+            --cat-event: #008C82;
+        }
+
+        body {
+            font-family: "Georgia", serif;
+            padding: 15px;
+            background-color: var(--bg-body);
+            color: var(--text-body);
+            margin: 0;
+            font-size: 0.9em;
+        }
+
+        /* === Toolbars === */
+        .toolbar {
+            display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+            background-color: #37474f;
+            padding: 10px; border-radius: 5px;
+            border: 1px solid var(--border-color);
+            margin-bottom: 8px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+        }
+        .toolbar label { font-weight: bold; color: #cfd8dc; font-size: 0.9em; }
+        .toolbar-sep { border-right: 1px solid #546e7a; height: 20px; margin: 0 4px; }
+        .toolbar-spacer { flex-grow: 1; }
+
+        button {
+            padding: 7px 11px;
+            background-color: var(--accent-teal);
+            color: white;
+            border: 1px solid rgba(0,0,0,0.2);
+            border-radius: 4px;
+            cursor: pointer;
+            font-family: "Georgia", serif;
+            font-size: 0.85em;
+            transition: all 0.15s;
+        }
+        button:hover { background-color: var(--accent-hover); }
+        button.active-mode { background-color: #d66; border-color: #a44; }
+        button.active-mode:hover { background-color: #b44; }
+
+        .hk-hint {
+            font-family: monospace; font-size: 0.8em; opacity: 0.7;
+            background: rgba(0,0,0,0.2); padding: 0 4px; border-radius: 3px; margin-left: 3px;
+        }
+
+        /* Category buttons */
+        .btn-vacation { background-color: var(--cat-vacation); }
+        .btn-vacation:hover { background-color: #33691e; }
+        .btn-overtime { background-color: var(--cat-overtime); }
+        .btn-overtime:hover { background-color: #9e9d24; }
+        .btn-trip { background-color: var(--cat-trip); }
+        .btn-trip:hover { background-color: #283593; }
+        .btn-mobile { background-color: var(--cat-mobile); }
+        .btn-mobile:hover { background-color: #455a64; }
+        .btn-sick { background-color: var(--cat-sick); }
+        .btn-sick:hover { background-color: #b71c1c; }
+        .btn-holiday { background-color: var(--cat-holiday); }
+        .btn-holiday:hover { background-color: #6a1b9a; }
+        .btn-event { background-color: var(--cat-event); }
+        .btn-event:hover { background-color: #00695c; }
+        .btn-clear { background-color: #607d8b; }
+        .btn-clear:hover { background-color: #455a64; }
+
+        input[type="number"] {
+            padding: 5px; background: #455a64; color: white;
+            border: 1px solid #78909c; border-radius: 3px; width: 65px;
+            font-family: sans-serif; font-weight: bold;
+        }
+        input[type="text"].filter-input {
+            padding: 5px; background: #455a64; color: white;
+            border: 1px solid #78909c; border-radius: 3px; width: 80px;
+            font-family: sans-serif;
+        }
+
+        /* === Calendar Wrapper === */
+        .calendar-wrapper {
+            overflow-x: auto;
+            border: 1px solid var(--border-color);
+            background: var(--bg-body);
+            margin-bottom: 10px;
+            border-radius: 4px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+        }
+
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            min-width: 900px;
+            table-layout: fixed;
+            user-select: none;
+        }
+
+        th, td {
+            border: 1px solid var(--border-color);
+            text-align: center;
+            height: 30px;
+            font-size: 12px;
+            padding: 0 2px;
+            position: relative;
+        }
+        th {
+            background-color: var(--header-bg);
+            color: var(--header-text);
+            font-weight: normal;
+            letter-spacing: 0.5px;
+        }
+        th.month-label {
+            width: 90px; text-align: left; padding-left: 10px;
+            z-index: 2; position: sticky; left: 0;
+            font-weight: bold; background-color: var(--header-bg);
+            box-shadow: 2px 0 5px rgba(0,0,0,0.2);
+        }
+        th.week-label {
+            width: 45px; text-align: center;
+            font-weight: bold; background-color: var(--header-bg);
+        }
+        th.day-header { font-size: 11px; color: #b0bec5; }
+        th.weekend-header { background-color: #1c2529; color: #78909c; }
+
+        tr:nth-child(even) { background-color: var(--row-even); }
+        tr:nth-child(odd) { background-color: var(--row-odd); }
+
+        /* Cell interaction */
+        td.day-cell { cursor: pointer; transition: background-color 0.1s; }
+        td.day-cell:hover { outline: 2px solid #ffffff; z-index: 20; }
+        td.empty-cell { background-color: transparent; border: 1px solid #37474f; opacity: 0; pointer-events: none; }
+        td.weekend-cell { background-color: rgba(0,0,0,0.2); color: #90a4ae; }
+        td.selected { background-color: var(--selection-bg) !important; color: #004d40 !important; font-weight: bold; z-index: 10; }
+
+        /* Status colors */
+        .status-vacation { background-color: var(--cat-vacation) !important; color: white; }
+        .status-trip { background-color: var(--cat-trip) !important; color: white; }
+        .status-sick { background-color: var(--cat-sick) !important; color: white; }
+        .status-overtime { background-color: var(--cat-overtime) !important; color: white; }
+        .status-holiday { background-color: var(--cat-holiday) !important; color: white; }
+        .status-mobile { background-color: var(--cat-mobile) !important; color: white; }
+        .status-event { background-color: var(--cat-event) !important; color: white; }
+
+        .week-divider { border-right: 2px solid #78909c; }
+        .month-divider-row td { border-bottom: 2px solid var(--accent-teal); }
+
+        /* === Day List View === */
+        .day-list-table { min-width: 600px; }
+        .day-list-table th { text-align: left; padding: 4px 8px; }
+        .day-list-table td { text-align: left; padding: 4px 8px; height: auto; cursor: pointer; }
+        .day-list-table td.day-cell:hover { outline: 2px solid #ffffff; }
+        .day-list-table .event-badge {
+            display: inline-block; padding: 1px 6px; border-radius: 3px;
+            color: white; font-size: 0.85em; margin: 0 2px;
+        }
+
+        /* === Stats Footer === */
+        #statsBar {
+            background-color: #37474f;
+            border: 1px solid var(--border-color);
+            border-radius: 5px;
+            padding: 10px;
+            display: flex; gap: 15px; flex-wrap: wrap;
+            justify-content: center; color: #eceff1;
+        }
+        .stat-item {
+            display: flex; align-items: center; gap: 6px; font-size: 0.85em;
+            background: rgba(0,0,0,0.2); padding: 4px 8px; border-radius: 12px;
+        }
+        .stat-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+        .dot-vacation { background-color: var(--cat-vacation); }
+        .dot-trip { background-color: var(--cat-trip); }
+        .dot-sick { background-color: var(--cat-sick); }
+        .dot-overtime { background-color: var(--cat-overtime); }
+        .dot-holiday { background-color: var(--cat-holiday); }
+        .dot-mobile { background-color: var(--cat-mobile); }
+        .dot-event { background-color: var(--cat-event); }
+        .dot-normal { background-color: #78909c; }
+
+        /* Hidden */
+        #fileInput { display: none; }
+    </style>
+</head>
+<body>
+
+    <!-- Toolbar 1: Year, actions, views -->
+    <div class="toolbar">
+        <label>Year: <input type="number" id="yearInput" value="2026"></label>
+        <button onclick="renderCurrentView()" title="Refresh [Enter]">Go</button>
+        <button onclick="autoFillHolidays()" title="Niedersachsen [Shift+A]">Holidays (NI)</button>
+        <span class="toolbar-sep"></span>
+        <button id="importBtn" title="Load JSON">Import JSON</button>
+        <button onclick="doExportJSON()" title="Save as JSON [Shift+E]">Export JSON</button>
+        <button onclick="doExportCSV()" title="Export current view as CSV">Export CSV</button>
+        <input type="file" id="fileInput" accept=".json">
+        <span class="toolbar-spacer"></span>
+        <label>View:</label>
+        <button id="viewMonthlyBtn" class="active-mode" onclick="setView('monthly')">Monthly</button>
+        <button id="viewDayListBtn" onclick="setView('daylist')">Day List</button>
+        <button id="viewWeeklyBtn" onclick="setView('weekly')">Weekly</button>
+        <button id="viewWeekAlignedBtn" onclick="setView('weekaligned')">Week-Aligned</button>
+        <span class="toolbar-sep"></span>
+        <label>Filter:</label>
+        <input type="text" class="filter-input" id="filterInput" placeholder="W# / M#" title="Filter by week (W1-W53) or month (M1-M12)">
+    </div>
+
+    <!-- Toolbar 2: Category assignment -->
+    <div class="toolbar">
+        <label>Assign:</label>
+        <button class="btn-vacation" onclick="applyStatus('vacation')">Vacation <span class="hk-hint">V</span></button>
+        <button class="btn-overtime" onclick="applyStatus('overtime')">Overtime <span class="hk-hint">O</span></button>
+        <span style="width:6px"></span>
+        <button class="btn-trip" onclick="applyStatus('trip')">Trip <span class="hk-hint">T</span></button>
+        <button class="btn-mobile" onclick="applyStatus('mobile')">Mobile <span class="hk-hint">M</span></button>
+        <span style="width:6px"></span>
+        <button class="btn-sick" onclick="applyStatus('sick')">Sick <span class="hk-hint">S</span></button>
+        <span style="width:6px"></span>
+        <button class="btn-holiday" onclick="applyStatus('holiday')">Holiday <span class="hk-hint">H</span></button>
+        <button class="btn-event" onclick="applyStatus('event')">Event <span class="hk-hint">E</span></button>
+        <span class="toolbar-spacer"></span>
+        <button class="btn-clear" onclick="applyStatus(null)">Clear <span class="hk-hint">C</span></button>
+        <button onclick="sendICS()" title="Send selected event dates as .ics via email">✉️ ICS</button>
+    </div>
+
+    <div class="calendar-wrapper">
+        <table id="calendarTable"></table>
+    </div>
+
+    <div id="statsBar"></div>
+
+    <script src="huginn_data.js"></script>
+    <script>
+        // ============================
+        // Huginn Cal v2.0
+        // ============================
+
+        let data = null;
+        let isMouseDown = false;
+        let currentView = 'monthly'; // monthly | daylist | weekly | weekaligned
+
+        const months = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+        const weekDays = ["M","T","W","T","F","S","S"];
+        const MAX_COLS = 37;
+        const CALENDAR_EVENT_TYPES = ['vacation','trip','sick','overtime','holiday','mobile','event'];
+
+        const calTable = document.getElementById('calendarTable');
+        const statsBar = document.getElementById('statsBar');
+        const yearInput = document.getElementById('yearInput');
+        const filterInput = document.getElementById('filterInput');
+        const fileInput = document.getElementById('fileInput');
+
+        // =====================================
+        // DATA LAYER
+        // =====================================
+
+        function initializeData() {
+            data = HuginnData.loadFromLocalStorage();
+            if (data.tasks.length === 0 && data.projects.length === 0) {
+                data = HuginnData.migrateAllLegacyData();
+            }
+            const { newEntities } = HuginnData.ensurePersonalProject(data);
+            if (newEntities) {
+                data.projects.push(newEntities.project);
+                data.events.push(newEntities.startEvent, newEntities.endEvent);
+                data.tasks.push(newEntities.defaultTask);
+                data.dependencies.push(...newEntities.dependencies);
+                saveData();
+            }
+        }
+
+        function saveData() {
+            HuginnData.saveToLocalStorage(data);
+        }
+
+        // =====================================
+        // EVENT HELPERS
+        // =====================================
+
+        function getEventForDate(dateKey) {
+            return data.events.find(e =>
+                CALENDAR_EVENT_TYPES.includes(e.type) && e.date === dateKey
+            );
+        }
+
+        function getEventTypeForDate(dateKey) {
+            const ev = getEventForDate(dateKey);
+            return ev ? ev.type : null;
+        }
+
+        function setEventForDate(dateKey, type) {
+            const existing = getEventForDate(dateKey);
+            if (type) {
+                if (existing) {
+                    existing.type = type;
+                } else {
+                    data.events.push(HuginnData.normalizeEvent({
+                        id: HuginnData.generateId(),
+                        name: type.charAt(0).toUpperCase() + type.slice(1),
+                        projectId: null,
+                        type: type,
+                        date: dateKey,
+                        dateType: 'fixed'
+                    }));
+                }
+            } else {
+                // Clear
+                if (existing) {
+                    data.events = data.events.filter(e => e.id !== existing.id);
+                }
+            }
+        }
+
+        // =====================================
+        // DATE HELPERS
+        // =====================================
+
+        function formatDateKey(y, m, d) {
+            return `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+        }
+
+        function getISOWeekNumber(date) {
+            const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+            const dayNum = d.getUTCDay() || 7;
+            d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+            const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+            return Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+        }
+
+        function getMondayOfWeek(year, weekNum) {
+            // ISO week: Jan 4 is always in week 1
+            const jan4 = new Date(year, 0, 4);
+            const dayOfWeek = jan4.getDay() || 7; // Mon=1..Sun=7
+            const mondayOfWeek1 = new Date(jan4);
+            mondayOfWeek1.setDate(jan4.getDate() - dayOfWeek + 1);
+            const target = new Date(mondayOfWeek1);
+            target.setDate(mondayOfWeek1.getDate() + (weekNum - 1) * 7);
+            return target;
+        }
+
+        // =====================================
+        // HOLIDAY LOGIC (NI)
+        // =====================================
+
+        function getEasterSunday(year) {
+            const a = year % 19, b = Math.floor(year / 100), c = year % 100;
+            const d = Math.floor(b / 4), e = b % 4, f = Math.floor((b + 8) / 25);
+            const g = Math.floor((b - f + 1) / 3), h = (19 * a + b - d - g + 15) % 30;
+            const i = Math.floor(c / 4), k = c % 4, l = (32 + 2 * e + 2 * i - h - k) % 7;
+            const m = Math.floor((a + 11 * h + 22 * l) / 451);
+            const month = Math.floor((h + l - 7 * m + 114) / 31) - 1;
+            const day = ((h + l - 7 * m + 114) % 31) + 1;
+            return new Date(year, month, day);
+        }
+
+        function addDays(date, days) {
+            const r = new Date(date); r.setDate(r.getDate() + days); return r;
+        }
+
+        function getHolidays(year) {
+            const holidays = [];
+            const fmt = (d) => formatDateKey(d.getFullYear(), d.getMonth(), d.getDate());
+            const pushFixed = (m, d) => holidays.push(formatDateKey(year, m, d));
+            pushFixed(0, 1); pushFixed(4, 1); pushFixed(9, 3); pushFixed(9, 31);
+            pushFixed(11, 25); pushFixed(11, 26);
+            const easter = getEasterSunday(year);
+            holidays.push(fmt(addDays(easter, -2)));  // Good Friday
+            holidays.push(fmt(addDays(easter, 1)));   // Easter Monday
+            holidays.push(fmt(addDays(easter, 39)));  // Ascension
+            holidays.push(fmt(addDays(easter, 50)));  // Whit Monday
+            return holidays;
+        }
+
+        function autoFillHolidays() {
+            const year = parseInt(yearInput.value);
+            const holidays = getHolidays(year);
+            let count = 0;
+            holidays.forEach(dateKey => {
+                if (!getEventTypeForDate(dateKey)) {
+                    setEventForDate(dateKey, 'holiday');
+                    count++;
+                }
+            });
+            if (count > 0) { saveData(); renderCurrentView(); }
+        }
+
+        // =====================================
+        // SELECTION & ASSIGNMENT
+        // =====================================
+
+        function setupCellEvents(cell) {
+            cell.addEventListener('mousedown', (e) => {
+                e.preventDefault();
+                isMouseDown = true;
+                cell.classList.toggle('selected');
+            });
+            cell.addEventListener('mouseenter', () => {
+                if (isMouseDown && !cell.classList.contains('selected')) {
+                    cell.classList.add('selected');
+                }
+            });
+        }
+
+        function applyStatus(status) {
+            const selectedCells = document.querySelectorAll('.selected');
+            if (selectedCells.length === 0) return;
+
+            selectedCells.forEach(cell => {
+                const dateKey = cell.dataset.date;
+                if (!dateKey) return;
+
+                // Remove old visual classes
+                CALENDAR_EVENT_TYPES.forEach(t => cell.classList.remove('status-' + t));
+
+                setEventForDate(dateKey, status);
+                if (status) cell.classList.add('status-' + status);
+                cell.classList.remove('selected');
+            });
+            saveData();
+            updateStats();
+        }
+
+        // =====================================
+        // VIEW MANAGEMENT
+        // =====================================
+
+        function setView(view) {
+            currentView = view;
+            document.querySelectorAll('[id^="view"]').forEach(btn => btn.classList.remove('active-mode'));
+            const map = { monthly: 'viewMonthlyBtn', daylist: 'viewDayListBtn', weekly: 'viewWeeklyBtn', weekaligned: 'viewWeekAlignedBtn' };
+            document.getElementById(map[view]).classList.add('active-mode');
+            renderCurrentView();
+        }
+
+        function renderCurrentView() {
+            const year = parseInt(yearInput.value);
+            switch (currentView) {
+                case 'monthly': renderMonthlyGrid(year); break;
+                case 'daylist': renderDayList(year); break;
+                case 'weekly': renderWeeklyTable(year); break;
+                case 'weekaligned': renderWeekAligned(year); break;
+            }
+            updateStats();
+        }
+
+        // =====================================
+        // FILTER
+        // =====================================
+
+        function getFilter() {
+            const raw = filterInput.value.trim().toUpperCase();
+            if (!raw) return null;
+            // Parse W# or M# patterns
+            const wMatch = raw.match(/^W(\d+)$/);
+            if (wMatch) return { type: 'week', value: parseInt(wMatch[1]) };
+            const mMatch = raw.match(/^M(\d+)$/);
+            if (mMatch) return { type: 'month', value: parseInt(mMatch[1]) };
+            // Try bare number as month
+            const num = parseInt(raw);
+            if (!isNaN(num) && num >= 1 && num <= 53) return { type: num <= 12 ? 'month' : 'week', value: num };
+            return null;
+        }
+
+        // =====================================
+        // VIEW: MONTHLY GRID (v1.0 layout)
+        // =====================================
+
+        function renderMonthlyGrid(year) {
+            calTable.innerHTML = '';
+            calTable.className = '';
+            calTable.style.minWidth = '1200px';
+
+            // Header row
+            const headerRow = document.createElement('tr');
+            const cornerTh = document.createElement('th');
+            cornerTh.className = 'month-label'; cornerTh.textContent = 'Month';
+            headerRow.appendChild(cornerTh);
+
+            for (let i = 0; i < MAX_COLS; i++) {
+                const th = document.createElement('th');
+                th.textContent = weekDays[i % 7];
+                th.className = 'day-header';
+                if (i % 7 >= 5) th.classList.add('weekend-header');
+                if (i % 7 === 6) th.classList.add('week-divider');
+                headerRow.appendChild(th);
+            }
+            calTable.appendChild(headerRow);
+
+            const filter = getFilter();
+
+            months.forEach((monthName, monthIndex) => {
+                if (filter && filter.type === 'month' && filter.value !== monthIndex + 1) return;
+
+                const row = document.createElement('tr');
+                const th = document.createElement('th');
+                th.className = 'month-label'; th.textContent = monthName;
+                row.appendChild(th);
+
+                const firstDate = new Date(year, monthIndex, 1);
+                let startDayJS = firstDate.getDay();
+                let offset = (startDayJS === 0) ? 6 : startDayJS - 1;
+                const daysCount = new Date(year, monthIndex + 1, 0).getDate();
+
+                for (let col = 0; col < MAX_COLS; col++) {
+                    const dayNum = col - offset + 1;
+                    const cell = document.createElement('td');
+                    const isWeekend = (col % 7) >= 5;
+                    if (col % 7 === 6) cell.classList.add('week-divider');
+
+                    if (dayNum > 0 && dayNum <= daysCount) {
+                        const dateKey = formatDateKey(year, monthIndex, dayNum);
+                        cell.className = 'day-cell';
+                        if (isWeekend) cell.classList.add('weekend-cell');
+                        cell.textContent = dayNum;
+                        cell.dataset.date = dateKey;
+
+                        const evType = getEventTypeForDate(dateKey);
+                        if (evType) cell.classList.add('status-' + evType);
+
+                        // Check week filter
+                        if (filter && filter.type === 'week') {
+                            const wn = getISOWeekNumber(new Date(year, monthIndex, dayNum));
+                            if (wn !== filter.value) {
+                                cell.style.opacity = '0.2';
+                                cell.style.pointerEvents = 'none';
+                            }
+                        }
+
+                        setupCellEvents(cell);
+                    } else {
+                        cell.className = 'empty-cell';
+                    }
+                    row.appendChild(cell);
+                }
+                calTable.appendChild(row);
+            });
+        }
+
+        // =====================================
+        // VIEW: DAY LIST
+        // =====================================
+
+        function renderDayList(year) {
+            calTable.innerHTML = '';
+            calTable.className = 'day-list-table';
+            calTable.style.minWidth = '600px';
+
+            const headerRow = document.createElement('tr');
+            ['Date', 'Day', 'Wk', 'Events'].forEach(h => {
+                const th = document.createElement('th');
+                th.textContent = h;
+                headerRow.appendChild(th);
+            });
+            calTable.appendChild(headerRow);
+
+            const filter = getFilter();
+            const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+
+            for (let m = 0; m < 12; m++) {
+                if (filter && filter.type === 'month' && filter.value !== m + 1) continue;
+                const daysInMonth = new Date(year, m + 1, 0).getDate();
+
+                for (let d = 1; d <= daysInMonth; d++) {
+                    const dateObj = new Date(year, m, d);
+                    const wn = getISOWeekNumber(dateObj);
+                    if (filter && filter.type === 'week' && filter.value !== wn) continue;
+
+                    const dateKey = formatDateKey(year, m, d);
+                    const evType = getEventTypeForDate(dateKey);
+                    const dow = dateObj.getDay();
+                    const isWeekend = dow === 0 || dow === 6;
+
+                    const tr = document.createElement('tr');
+                    if (isWeekend) tr.style.backgroundColor = 'rgba(0,0,0,0.1)';
+
+                    // Date
+                    const tdDate = document.createElement('td');
+                    tdDate.className = 'day-cell';
+                    tdDate.textContent = dateKey;
+                    tdDate.dataset.date = dateKey;
+                    if (evType) tdDate.classList.add('status-' + evType);
+                    setupCellEvents(tdDate);
+                    tr.appendChild(tdDate);
+
+                    // Day name
+                    const tdDay = document.createElement('td');
+                    tdDay.textContent = dayNames[dow];
+                    if (isWeekend) tdDay.style.fontWeight = 'bold';
+                    tr.appendChild(tdDay);
+
+                    // Week number
+                    const tdWk = document.createElement('td');
+                    tdWk.textContent = `W${wn}`;
+                    tr.appendChild(tdWk);
+
+                    // Events
+                    const tdEv = document.createElement('td');
+                    tdEv.style.textAlign = 'left';
+                    if (evType) {
+                        const badge = document.createElement('span');
+                        badge.className = 'event-badge';
+                        badge.style.backgroundColor = `var(--cat-${evType})`;
+                        badge.textContent = evType;
+                        tdEv.appendChild(badge);
+                    }
+                    tr.appendChild(tdEv);
+                    calTable.appendChild(tr);
+                }
+            }
+        }
+
+        // =====================================
+        // VIEW: WEEKLY TABLE
+        // =====================================
+
+        function renderWeeklyTable(year) {
+            calTable.innerHTML = '';
+            calTable.className = '';
+            calTable.style.minWidth = '900px';
+
+            // Header
+            const headerRow = document.createElement('tr');
+            const wkTh = document.createElement('th');
+            wkTh.className = 'week-label'; wkTh.textContent = 'Wk';
+            headerRow.appendChild(wkTh);
+            ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].forEach((d, i) => {
+                const th = document.createElement('th');
+                th.textContent = d;
+                th.className = 'day-header';
+                if (i >= 5) th.classList.add('weekend-header');
+                headerRow.appendChild(th);
+            });
+            calTable.appendChild(headerRow);
+
+            const filter = getFilter();
+
+            // Find all weeks in the year
+            const weeks = getWeeksForYear(year);
+
+            weeks.forEach(week => {
+                if (filter && filter.type === 'week' && filter.value !== week.num) return;
+                if (filter && filter.type === 'month') {
+                    // Show week if any day is in the filtered month
+                    const hasDay = week.days.some(d => d && d.getMonth() + 1 === filter.value);
+                    if (!hasDay) return;
+                }
+
+                const row = document.createElement('tr');
+                const wkTd = document.createElement('th');
+                wkTd.className = 'week-label'; wkTd.textContent = `W${week.num}`;
+                row.appendChild(wkTd);
+
+                for (let i = 0; i < 7; i++) {
+                    const cell = document.createElement('td');
+                    const dayDate = week.days[i];
+                    if (dayDate && dayDate.getFullYear() === year) {
+                        const dateKey = formatDateKey(dayDate.getFullYear(), dayDate.getMonth(), dayDate.getDate());
+                        cell.className = 'day-cell';
+                        if (i >= 5) cell.classList.add('weekend-cell');
+                        cell.textContent = dayDate.getDate();
+                        cell.dataset.date = dateKey;
+                        cell.title = `${months[dayDate.getMonth()]} ${dayDate.getDate()}`;
+
+                        const evType = getEventTypeForDate(dateKey);
+                        if (evType) cell.classList.add('status-' + evType);
+                        setupCellEvents(cell);
+                    } else if (dayDate) {
+                        // Day belongs to adjacent year
+                        cell.className = 'day-cell';
+                        cell.style.opacity = '0.3';
+                        cell.textContent = dayDate.getDate();
+                        const dateKey = formatDateKey(dayDate.getFullYear(), dayDate.getMonth(), dayDate.getDate());
+                        cell.dataset.date = dateKey;
+                        const evType = getEventTypeForDate(dateKey);
+                        if (evType) cell.classList.add('status-' + evType);
+                        setupCellEvents(cell);
+                    } else {
+                        cell.className = 'empty-cell';
+                    }
+                    row.appendChild(cell);
+                }
+                calTable.appendChild(row);
+            });
+        }
+
+        function getWeeksForYear(year) {
+            const weeks = [];
+            // Start from the Monday of week 1
+            const jan4 = new Date(year, 0, 4);
+            const dow = jan4.getDay() || 7;
+            const mondayW1 = new Date(jan4);
+            mondayW1.setDate(jan4.getDate() - dow + 1);
+
+            let current = new Date(mondayW1);
+            let weekNum = 1;
+
+            while (weekNum <= 53) {
+                const days = [];
+                for (let i = 0; i < 7; i++) {
+                    days.push(new Date(current));
+                    current.setDate(current.getDate() + 1);
+                }
+                // Stop if the week's Monday is in the next year and past Jan
+                if (days[0].getFullYear() > year && days[0].getMonth() > 0) break;
+
+                weeks.push({ num: weekNum, days });
+                weekNum++;
+            }
+            return weeks;
+        }
+
+        // =====================================
+        // VIEW: WEEK-ALIGNED (months with aligned weekday columns)
+        // =====================================
+
+        function renderWeekAligned(year) {
+            calTable.innerHTML = '';
+            calTable.className = '';
+            calTable.style.minWidth = '900px';
+
+            const filter = getFilter();
+
+            months.forEach((monthName, mi) => {
+                if (filter && filter.type === 'month' && filter.value !== mi + 1) return;
+
+                // Month header
+                const mhRow = document.createElement('tr');
+                const mhTh = document.createElement('th');
+                mhTh.colSpan = 8;
+                mhTh.style.textAlign = 'left';
+                mhTh.style.paddingLeft = '10px';
+                mhTh.style.fontSize = '1em';
+                mhTh.style.backgroundColor = '#1c2529';
+                mhTh.textContent = monthName;
+                mhRow.appendChild(mhTh);
+                calTable.appendChild(mhRow);
+
+                // Header row
+                const headerRow = document.createElement('tr');
+                const wkTh = document.createElement('th');
+                wkTh.className = 'week-label'; wkTh.textContent = 'Wk';
+                headerRow.appendChild(wkTh);
+                ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].forEach((d, i) => {
+                    const th = document.createElement('th');
+                    th.textContent = d; th.className = 'day-header';
+                    if (i >= 5) th.classList.add('weekend-header');
+                    headerRow.appendChild(th);
+                });
+                calTable.appendChild(headerRow);
+
+                // Group days by ISO week
+                const daysInMonth = new Date(year, mi + 1, 0).getDate();
+                const weekMap = new Map(); // weekNum -> [null x 7]
+
+                for (let d = 1; d <= daysInMonth; d++) {
+                    const dateObj = new Date(year, mi, d);
+                    const wn = getISOWeekNumber(dateObj);
+                    if (filter && filter.type === 'week' && filter.value !== wn) continue;
+
+                    if (!weekMap.has(wn)) weekMap.set(wn, [null, null, null, null, null, null, null]);
+                    const dow = dateObj.getDay();
+                    const idx = dow === 0 ? 6 : dow - 1; // Mon=0..Sun=6
+                    weekMap.get(wn)[idx] = { day: d, dateObj };
+                }
+
+                weekMap.forEach((days, wn) => {
+                    const row = document.createElement('tr');
+                    const wkTd = document.createElement('th');
+                    wkTd.className = 'week-label'; wkTd.textContent = `W${wn}`;
+                    row.appendChild(wkTd);
+
+                    for (let i = 0; i < 7; i++) {
+                        const cell = document.createElement('td');
+                        if (days[i]) {
+                            const dateKey = formatDateKey(year, mi, days[i].day);
+                            cell.className = 'day-cell';
+                            if (i >= 5) cell.classList.add('weekend-cell');
+                            cell.textContent = days[i].day;
+                            cell.dataset.date = dateKey;
+
+                            const evType = getEventTypeForDate(dateKey);
+                            if (evType) cell.classList.add('status-' + evType);
+                            setupCellEvents(cell);
+                        } else {
+                            cell.className = 'empty-cell';
+                        }
+                        row.appendChild(cell);
+                    }
+                    calTable.appendChild(row);
+                });
+            });
+        }
+
+        // =====================================
+        // STATS
+        // =====================================
+
+        function updateStats() {
+            const year = parseInt(yearInput.value);
+            const stats = { vacation: 0, trip: 0, sick: 0, overtime: 0, holiday: 0, mobile: 0, event: 0, normal: 0 };
+
+            for (let m = 0; m < 12; m++) {
+                const daysInMonth = new Date(year, m + 1, 0).getDate();
+                for (let d = 1; d <= daysInMonth; d++) {
+                    const dateKey = formatDateKey(year, m, d);
+                    const evType = getEventTypeForDate(dateKey);
+                    const dow = new Date(year, m, d).getDay();
+                    if (evType && stats.hasOwnProperty(evType)) stats[evType]++;
+                    else if (dow !== 0 && dow !== 6) stats.normal++;
+                }
+            }
+
+            statsBar.innerHTML = `
+                <div class="stat-item"><span class="stat-dot dot-normal"></span> Normal: ${stats.normal}</div>
+                <div class="stat-item"><span class="stat-dot dot-vacation"></span> Vacation: ${stats.vacation}</div>
+                <div class="stat-item"><span class="stat-dot dot-overtime"></span> Overtime: ${stats.overtime}</div>
+                <div class="stat-item"><span class="stat-dot dot-trip"></span> Trip: ${stats.trip}</div>
+                <div class="stat-item"><span class="stat-dot dot-mobile"></span> Mobile: ${stats.mobile}</div>
+                <div class="stat-item"><span class="stat-dot dot-sick"></span> Sick: ${stats.sick}</div>
+                <div class="stat-item"><span class="stat-dot dot-holiday"></span> Holiday: ${stats.holiday}</div>
+                <div class="stat-item"><span class="stat-dot dot-event"></span> Event: ${stats.event}</div>
+            `;
+        }
+
+        // =====================================
+        // EXPORT / IMPORT
+        // =====================================
+
+        function doExportJSON() {
+            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = 'huginn_data.json';
+            a.click();
+        }
+
+        function doExportCSV() {
+            const rows = calTable.querySelectorAll('tr');
+            const lines = [];
+            rows.forEach(tr => {
+                const cells = [];
+                tr.querySelectorAll('th, td').forEach(cell => {
+                    let text = cell.textContent.trim();
+                    if (text.includes(',') || text.includes('"')) text = '"' + text.replace(/"/g, '""') + '"';
+                    cells.push(text);
+                });
+                lines.push(cells.join(','));
+            });
+            const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = `huginn_cal_${yearInput.value}_${currentView}.csv`;
+            a.click();
+        }
+
+        document.getElementById('importBtn').addEventListener('click', () => fileInput.click());
+        fileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (ev) => {
+                try {
+                    const raw = JSON.parse(ev.target.result);
+
+                    // Detect legacy cal format: flat {date: status} map
+                    if (!raw.huginnVersion && !raw.tasks && !raw.events) {
+                        const keys = Object.keys(raw);
+                        const isLegacyCal = keys.length > 0 && keys.every(k => /^\d{4}-\d{2}-\d{2}$/.test(k));
+                        if (isLegacyCal) {
+                            // Convert legacy cal data
+                            keys.forEach(dateKey => {
+                                const evType = raw[dateKey];
+                                if (CALENDAR_EVENT_TYPES.includes(evType)) {
+                                    setEventForDate(dateKey, evType);
+                                }
+                            });
+                            saveData();
+                            renderCurrentView();
+                            return;
+                        }
+                    }
+
+                    // Standard huginn data import
+                    data = HuginnData.normalizeData(raw);
+                    const { newEntities } = HuginnData.ensurePersonalProject(data);
+                    if (newEntities) {
+                        data.projects.push(newEntities.project);
+                        data.events.push(newEntities.startEvent, newEntities.endEvent);
+                        data.tasks.push(newEntities.defaultTask);
+                        data.dependencies.push(...newEntities.dependencies);
+                    }
+                    saveData();
+                    renderCurrentView();
+                } catch (err) {
+                    console.error('Import error:', err);
+                }
+            };
+            reader.readAsText(file);
+            fileInput.value = '';
+        });
+
+        // =====================================
+        // ICS MAIL
+        // =====================================
+
+        function sendICS() {
+            const selectedCells = document.querySelectorAll('.selected');
+            if (selectedCells.length === 0) return;
+
+            const dates = [];
+            selectedCells.forEach(cell => {
+                if (cell.dataset.date) dates.push(cell.dataset.date);
+            });
+            dates.sort();
+
+            const startDate = dates[0].replace(/-/g, '');
+            const endDateObj = new Date(dates[dates.length - 1]);
+            endDateObj.setDate(endDateObj.getDate() + 1);
+            const endDate = endDateObj.toISOString().split('T')[0].replace(/-/g, '');
+
+            // First selected cell's event type
+            const firstType = getEventTypeForDate(dates[0]) || 'Event';
+            const summary = firstType.charAt(0).toUpperCase() + firstType.slice(1);
+
+            const icsContent = [
+                'BEGIN:VCALENDAR',
+                'VERSION:2.0',
+                'PRODID:-//Huginn//Cal v2.0//EN',
+                'BEGIN:VEVENT',
+                `DTSTART;VALUE=DATE:${startDate}`,
+                `DTEND;VALUE=DATE:${endDate}`,
+                `SUMMARY:${summary}`,
+                `DESCRIPTION:${dates.length} day(s): ${dates.join(', ')}`,
+                `UID:huginn-${Date.now()}@cal`,
+                'END:VEVENT',
+                'END:VCALENDAR'
+            ].join('\r\n');
+
+            const blob = new Blob([icsContent], { type: 'text/calendar' });
+            const url = URL.createObjectURL(blob);
+
+            // Try mailto with attachment via download
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `huginn_event_${startDate}.ics`;
+            a.click();
+
+            // Clear selection
+            selectedCells.forEach(c => c.classList.remove('selected'));
+        }
+
+        // =====================================
+        // HOTKEYS
+        // =====================================
+
+        document.addEventListener('keydown', (e) => {
+            if (e.target.tagName === 'INPUT') {
+                if (e.key === 'Enter') renderCurrentView();
+                return;
+            }
+            const key = e.key.toLowerCase();
+            if (e.shiftKey && key === 'e') { e.preventDefault(); doExportJSON(); return; }
+            if (e.shiftKey && key === 'a') { e.preventDefault(); autoFillHolidays(); return; }
+
+            switch (key) {
+                case 'v': applyStatus('vacation'); break;
+                case 't': applyStatus('trip'); break;
+                case 's': applyStatus('sick'); break;
+                case 'o': applyStatus('overtime'); break;
+                case 'm': applyStatus('mobile'); break;
+                case 'h': applyStatus('holiday'); break;
+                case 'e': applyStatus('event'); break;
+                case 'c': case 'x': case 'delete': case 'backspace':
+                    applyStatus(null); break;
+                case '1': setView('monthly'); break;
+                case '2': setView('daylist'); break;
+                case '3': setView('weekly'); break;
+                case '4': setView('weekaligned'); break;
+            }
+        });
+
+        document.addEventListener('mouseup', () => isMouseDown = false);
+        filterInput.addEventListener('input', () => renderCurrentView());
+
+        // =====================================
+        // INIT
+        // =====================================
+
+        initializeData();
+        renderCurrentView();
+    </script>
+
+    <!-- Navigation Bar -->
+    <nav style="position:fixed; bottom:0; left:0; right:0; background:#1c2529; border-top:1px solid #5a5a5a; padding:6px 15px; display:flex; gap:15px; justify-content:center; font-size:0.85em; z-index:999;">
+        <a href="huginn tasks v8.0.html" style="color:#A27B5C; text-decoration:none;">Tasks</a>
+        <span style="color:#DCD7C9; font-weight:bold;">Cal</span>
+        <a href="huginn plan v1.0.html" style="color:#A27B5C; text-decoration:none;">Plan</a>
+        <a href="huginn timekeeper v1.0.html" style="color:#A27B5C; text-decoration:none;">Timekeeper</a>
+    </nav>
+</body>
+</html>

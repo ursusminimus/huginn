@@ -530,6 +530,23 @@ const HuginnData = (() => {
         return dateString.split('T')[0];
     }
 
+    function formatDateTimeISO(dateString) {
+        if (!dateString) return '';
+        const d = new Date(dateString);
+        const y = d.getFullYear();
+        const mo = String(d.getMonth() + 1).padStart(2, '0');
+        const da = String(d.getDate()).padStart(2, '0');
+        const h = String(d.getHours()).padStart(2, '0');
+        const mi = String(d.getMinutes()).padStart(2, '0');
+        return `${y}-${mo}-${da} ${h}:${mi}`;
+    }
+
+    function formatTimeISO(dateString) {
+        if (!dateString) return '';
+        const d = new Date(dateString);
+        return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+    }
+
     function getTodayDateString() {
         return new Date().toISOString().split('T')[0];
     }
@@ -563,6 +580,420 @@ const HuginnData = (() => {
             ids.push(...getDescendantProjectIds(child.id, projects));
         });
         return ids;
+    }
+
+    // --- Plan Helpers ---
+
+    /**
+     * Add a new task to a project, with default dependencies (start → task → end).
+     * Mutates data. Returns the new task.
+     */
+    function addTaskToProject(taskProps, projectId, data) {
+        const task = normalizeTask({ ...taskProps, id: generateId(), projectId });
+        data.tasks.push(task);
+
+        const project = findById(data.projects, projectId);
+        if (project) {
+            // start → task dependency
+            if (project.startEventId) {
+                data.dependencies.push(normalizeDependency({
+                    id: generateId(), fromId: project.startEventId, fromType: 'event',
+                    toId: task.id, toType: 'task', type: 'finish-to-start'
+                }));
+            }
+            // task → end dependency
+            if (project.endEventId) {
+                data.dependencies.push(normalizeDependency({
+                    id: generateId(), fromId: task.id, fromType: 'task',
+                    toId: project.endEventId, toType: 'event', type: 'finish-to-start'
+                }));
+            }
+        }
+        return task;
+    }
+
+    /**
+     * Recursively delete a project and all its children, events, tasks, and dependencies.
+     * Mutates data in place.
+     */
+    function deleteProject(projectId, data) {
+        const descendantIds = getDescendantProjectIds(projectId, data.projects);
+        const allProjectIds = [projectId, ...descendantIds];
+        const allProjectIdSet = new Set(allProjectIds);
+
+        // Collect task IDs and event IDs belonging to these projects
+        const taskIdsToRemove = new Set(
+            data.tasks.filter(t => allProjectIdSet.has(t.projectId)).map(t => t.id)
+        );
+        const eventIdsToRemove = new Set(
+            data.events.filter(e => allProjectIdSet.has(e.projectId)).map(e => e.id)
+        );
+
+        // Remove dependencies referencing any removed entity
+        data.dependencies = data.dependencies.filter(d => {
+            if (d.fromType === 'task' && taskIdsToRemove.has(d.fromId)) return false;
+            if (d.toType === 'task' && taskIdsToRemove.has(d.toId)) return false;
+            if (d.fromType === 'event' && eventIdsToRemove.has(d.fromId)) return false;
+            if (d.toType === 'event' && eventIdsToRemove.has(d.toId)) return false;
+            return true;
+        });
+
+        // Remove timekeeping activities for removed tasks
+        data.timekeeping.activities = data.timekeeping.activities.filter(
+            a => !taskIdsToRemove.has(a.taskId)
+        );
+
+        data.tasks = data.tasks.filter(t => !allProjectIdSet.has(t.projectId));
+        data.events = data.events.filter(e => !allProjectIdSet.has(e.projectId));
+        data.projects = data.projects.filter(p => !allProjectIdSet.has(p.id));
+    }
+
+    /**
+     * Flatten a project: convert to a task in parent, promote children up one level.
+     * Removes the project shell, its start/end milestones, and their dependencies.
+     * Mutates data. Returns the replacement task (the former default task).
+     */
+    function flattenProject(projectId, data) {
+        const project = findById(data.projects, projectId);
+        if (!project) return null;
+
+        const parentId = project.parentId;
+
+        // Move child tasks to parent project
+        data.tasks.forEach(t => {
+            if (t.projectId === projectId) t.projectId = parentId;
+        });
+
+        // Move child projects to parent
+        data.projects.forEach(p => {
+            if (p.parentId === projectId) p.parentId = parentId;
+        });
+
+        // Move child events (non-milestone) to parent
+        data.events.forEach(e => {
+            if (e.projectId === projectId && e.type !== 'milestone') {
+                e.projectId = parentId;
+            }
+        });
+
+        // Remove start/end milestones and their dependencies
+        const milestoneIds = new Set([project.startEventId, project.endEventId].filter(Boolean));
+        data.events = data.events.filter(e => !milestoneIds.has(e.id));
+        data.dependencies = data.dependencies.filter(d => {
+            if (d.fromType === 'event' && milestoneIds.has(d.fromId)) return false;
+            if (d.toType === 'event' && milestoneIds.has(d.toId)) return false;
+            return true;
+        });
+
+        // Remove the project itself
+        data.projects = data.projects.filter(p => p.id !== projectId);
+        recomputeLayers(data);
+
+        // Return the default task (now promoted)
+        return findById(data.tasks, project.defaultTaskId);
+    }
+
+    /**
+     * Group selected tasks into a new project under a common parent.
+     * Creates the project, moves tasks into it, sets up default dependencies.
+     * Mutates data. Returns the new project.
+     */
+    function groupTasksToProject(taskIds, projectName, parentId, data) {
+        const result = createProject(projectName, parentId, data);
+        data.projects.push(result.project);
+        data.events.push(result.startEvent, result.endEvent);
+        data.tasks.push(result.defaultTask);
+        data.dependencies.push(...result.dependencies);
+
+        const taskIdSet = new Set(taskIds);
+
+        // Remove old dependencies for these tasks that link to parent milestones
+        const parentProject = parentId ? findById(data.projects, parentId) : null;
+        if (parentProject) {
+            const parentMilestones = new Set(
+                [parentProject.startEventId, parentProject.endEventId].filter(Boolean)
+            );
+            data.dependencies = data.dependencies.filter(d => {
+                if (taskIdSet.has(d.fromId) && d.fromType === 'task' &&
+                    d.toType === 'event' && parentMilestones.has(d.toId)) return false;
+                if (taskIdSet.has(d.toId) && d.toType === 'task' &&
+                    d.fromType === 'event' && parentMilestones.has(d.fromId)) return false;
+                return true;
+            });
+        }
+
+        // Move tasks into the new project and add default deps
+        taskIds.forEach(taskId => {
+            const task = findById(data.tasks, taskId);
+            if (task) {
+                task.projectId = result.project.id;
+                // start → task
+                data.dependencies.push(normalizeDependency({
+                    id: generateId(), fromId: result.startEvent.id, fromType: 'event',
+                    toId: taskId, toType: 'task', type: 'finish-to-start'
+                }));
+                // task → end
+                data.dependencies.push(normalizeDependency({
+                    id: generateId(), fromId: taskId, fromType: 'task',
+                    toId: result.endEvent.id, toType: 'event', type: 'finish-to-start'
+                }));
+            }
+        });
+
+        recomputeLayers(data);
+        return result.project;
+    }
+
+    /**
+     * Convert a task into a project (breakdown).
+     * The task becomes the default task of a new project at the same location.
+     * Mutates data. Returns the new project.
+     */
+    function breakdownTaskToProject(taskId, data) {
+        const task = findById(data.tasks, taskId);
+        if (!task) return null;
+
+        const result = createProject(task.text, task.projectId, data);
+
+        // Replace the auto-created default task with the original task
+        result.defaultTask = task;
+        task.projectId = result.project.id;
+        result.project.defaultTaskId = task.id;
+
+        data.projects.push(result.project);
+        data.events.push(result.startEvent, result.endEvent);
+        // Don't push defaultTask — it already exists in data.tasks
+
+        // Remove old deps for this task that linked to parent milestones
+        const parentProject = result.project.parentId
+            ? findById(data.projects, result.project.parentId) : null;
+        if (parentProject) {
+            const parentMilestones = new Set(
+                [parentProject.startEventId, parentProject.endEventId].filter(Boolean)
+            );
+            data.dependencies = data.dependencies.filter(d => {
+                if ((d.fromId === taskId && d.fromType === 'task' &&
+                     d.toType === 'event' && parentMilestones.has(d.toId)) ||
+                    (d.toId === taskId && d.toType === 'task' &&
+                     d.fromType === 'event' && parentMilestones.has(d.fromId))) {
+                    return false;
+                }
+                return true;
+            });
+        }
+
+        // Add new deps: start → task → end
+        data.dependencies.push(
+            normalizeDependency({
+                id: generateId(), fromId: result.startEvent.id, fromType: 'event',
+                toId: task.id, toType: 'task', type: 'finish-to-start'
+            }),
+            normalizeDependency({
+                id: generateId(), fromId: task.id, fromType: 'task',
+                toId: result.endEvent.id, toType: 'event', type: 'finish-to-start'
+            })
+        );
+
+        recomputeLayers(data);
+        return result.project;
+    }
+
+    /**
+     * Get all dependencies involving a given entity.
+     * Returns { predecessors: [...], successors: [...] }
+     */
+    function getDependenciesFor(entityId, entityType, data) {
+        const predecessors = data.dependencies.filter(
+            d => d.toId === entityId && d.toType === entityType
+        );
+        const successors = data.dependencies.filter(
+            d => d.fromId === entityId && d.fromType === entityType
+        );
+        return { predecessors, successors };
+    }
+
+    /**
+     * Topological sort of tasks and milestone events respecting dependencies.
+     * Returns an array of { id, type: 'task'|'event', entity } in dependency order.
+     * If a cycle is detected, returns null.
+     */
+    function topologicalSort(data) {
+        // Build adjacency: only schedulable items (tasks + milestone events)
+        const nodes = new Map(); // key: "task:id" or "event:id"
+        const key = (type, id) => `${type}:${id}`;
+
+        data.tasks.forEach(t => {
+            if (t.status !== 'stopped') {
+                nodes.set(key('task', t.id), { id: t.id, type: 'task', entity: t, inDegree: 0, out: [] });
+            }
+        });
+        data.events.filter(e => e.type === 'milestone').forEach(e => {
+            nodes.set(key('event', e.id), { id: e.id, type: 'event', entity: e, inDegree: 0, out: [] });
+        });
+
+        // Build edges
+        data.dependencies.forEach(d => {
+            const fromKey = key(d.fromType, d.fromId);
+            const toKey = key(d.toType, d.toId);
+            const fromNode = nodes.get(fromKey);
+            const toNode = nodes.get(toKey);
+            if (fromNode && toNode) {
+                fromNode.out.push(toKey);
+                toNode.inDegree++;
+            }
+        });
+
+        // Kahn's algorithm
+        const queue = [];
+        nodes.forEach((node, k) => {
+            if (node.inDegree === 0) queue.push(k);
+        });
+
+        const sorted = [];
+        while (queue.length > 0) {
+            const k = queue.shift();
+            const node = nodes.get(k);
+            sorted.push({ id: node.id, type: node.type, entity: node.entity });
+            node.out.forEach(toKey => {
+                const toNode = nodes.get(toKey);
+                if (toNode) {
+                    toNode.inDegree--;
+                    if (toNode.inDegree === 0) queue.push(toKey);
+                }
+            });
+        }
+
+        if (sorted.length !== nodes.size) return null; // Cycle detected
+        return sorted;
+    }
+
+    /**
+     * Run the scheduler: compute scheduledStart/scheduledEnd for tasks,
+     * scheduledDate for milestone events. Identifies critical path.
+     * Returns { success, conflicts: [], criticalPath: Set<id> }
+     */
+    function runScheduler(data) {
+        const sorted = topologicalSort(data);
+        if (!sorted) return { success: false, conflicts: [{ message: 'Dependency cycle detected' }], criticalPath: new Set() };
+
+        const today = new Date(getTodayDateString());
+        const DAY_MS = 86400000;
+        const conflicts = [];
+
+        // Maps: nodeKey → { earliest, latest, duration }
+        const info = new Map();
+        const key = (type, id) => `${type}:${id}`;
+
+        // Initialize
+        sorted.forEach(item => {
+            const k = key(item.type, item.id);
+            let duration = 0;
+            let fixedStart = null, fixedEnd = null;
+
+            if (item.type === 'task') {
+                const t = item.entity;
+                duration = (t.estimatedDurationDays || 1) * DAY_MS;
+
+                // Handle already-started tasks
+                if (t.status === 'started' && t.startedAt) {
+                    fixedStart = new Date(t.startedAt).getTime();
+                } else if (t.status === 'done') {
+                    fixedStart = t.startedAt ? new Date(t.startedAt).getTime() : (t.finishedAt ? new Date(t.finishedAt).getTime() : null);
+                    fixedEnd = t.finishedAt ? new Date(t.finishedAt).getTime() : fixedStart;
+                    if (fixedStart && fixedEnd) duration = fixedEnd - fixedStart || DAY_MS;
+                }
+
+                // Respect date constraints
+                if (t.startDate && t.startDateType === 'fixed') fixedStart = new Date(t.startDate).getTime();
+                if (t.endDate && t.endDateType === 'fixed') fixedEnd = new Date(t.endDate).getTime();
+            } else {
+                // milestone — zero duration
+                const e = item.entity;
+                if (e.date && e.dateType === 'fixed') fixedStart = new Date(e.date).getTime();
+            }
+
+            info.set(k, { duration, fixedStart, fixedEnd, earliest: fixedStart || today.getTime(), latest: Infinity, float: 0 });
+        });
+
+        // Forward pass — compute earliest start/finish
+        sorted.forEach(item => {
+            const k = key(item.type, item.id);
+            const node = info.get(k);
+
+            // Successors
+            const deps = data.dependencies.filter(d => d.fromId === item.id && d.fromType === item.type);
+            deps.forEach(d => {
+                const succKey = key(d.toType, d.toId);
+                const succ = info.get(succKey);
+                if (succ) {
+                    const finishTime = node.earliest + node.duration;
+                    if (succ.fixedStart) {
+                        // Check for conflict
+                        if (finishTime > succ.fixedStart) {
+                            conflicts.push({
+                                message: `Fixed date conflict: ${item.type} ${item.id} finishes after ${d.toType} ${d.toId} fixed start`,
+                                fromId: item.id, fromType: item.type,
+                                toId: d.toId, toType: d.toType
+                            });
+                        }
+                    } else {
+                        succ.earliest = Math.max(succ.earliest, finishTime);
+                    }
+                }
+            });
+        });
+
+        // Backward pass — compute latest start/finish
+        const reverseSorted = [...sorted].reverse();
+        // Initialize latest for items with no successors
+        let projectEnd = today.getTime();
+        sorted.forEach(item => {
+            const k = key(item.type, item.id);
+            const node = info.get(k);
+            projectEnd = Math.max(projectEnd, node.earliest + node.duration);
+        });
+
+        reverseSorted.forEach(item => {
+            const k = key(item.type, item.id);
+            const node = info.get(k);
+            if (node.latest === Infinity) node.latest = projectEnd - node.duration;
+            if (node.fixedEnd) node.latest = Math.min(node.latest, node.fixedEnd - node.duration);
+
+            // Predecessors
+            const deps = data.dependencies.filter(d => d.toId === item.id && d.toType === item.type);
+            deps.forEach(d => {
+                const predKey = key(d.fromType, d.fromId);
+                const pred = info.get(predKey);
+                if (pred) {
+                    pred.latest = Math.min(pred.latest, node.latest - pred.duration);
+                }
+            });
+        });
+
+        // Compute float and identify critical path
+        const criticalPath = new Set();
+        sorted.forEach(item => {
+            const k = key(item.type, item.id);
+            const node = info.get(k);
+            node.float = node.latest - node.earliest;
+            if (Math.abs(node.float) < DAY_MS * 0.01) { // near-zero float
+                criticalPath.add(item.id);
+            }
+        });
+
+        // Write scheduled dates back to entities
+        sorted.forEach(item => {
+            const k = key(item.type, item.id);
+            const node = info.get(k);
+            if (item.type === 'task') {
+                item.entity.scheduledStart = new Date(node.earliest).toISOString().split('T')[0];
+                item.entity.scheduledEnd = new Date(node.earliest + node.duration).toISOString().split('T')[0];
+            } else {
+                item.entity.scheduledDate = new Date(node.earliest).toISOString().split('T')[0];
+            }
+        });
+
+        return { success: conflicts.length === 0, conflicts, criticalPath, info };
     }
 
     // --- Public API ---
@@ -600,6 +1031,16 @@ const HuginnData = (() => {
         isRunningLate,
         getProjectPath,
 
+        // Plan helpers
+        addTaskToProject,
+        deleteProject,
+        flattenProject,
+        groupTasksToProject,
+        breakdownTaskToProject,
+        getDependenciesFor,
+        topologicalSort,
+        runScheduler,
+
         // Persistence
         saveToLocalStorage,
         loadFromLocalStorage,
@@ -617,6 +1058,8 @@ const HuginnData = (() => {
 
         // Date helpers
         formatDateISO,
+        formatDateTimeISO,
+        formatTimeISO,
         getTodayDateString,
 
         // Lookups
