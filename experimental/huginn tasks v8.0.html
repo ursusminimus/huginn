@@ -648,7 +648,7 @@
 
             const now = new Date();
             const nextAction = new Date(now);
-            nextAction.setDate(now.getDate() + 3);
+            nextAction.setDate(now.getDate()); // was + 3 before to have some offset but "today" makes more sense for quickadd
 
             const task = HuginnData.normalizeTask({
                 id: HuginnData.generateId(),
