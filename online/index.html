@@ -1,0 +1,1105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Huginn Tasks (Online)</title>
+    <style>
+        /* === Base === */
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: "Georgia", serif;
+            padding: 15px;
+            font-size: 0.9em;
+            background-color: #2A3439;
+            color: #1f1f1f;
+        }
+
+        /* === Table === */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+            table-layout: fixed;
+        }
+        th, td {
+            border: 1px solid #5a5a5a;
+            padding: 8px;
+            text-align: left;
+            vertical-align: middle;
+            word-wrap: break-word;
+        }
+        th {
+            background-color: #2f4f4f;
+            color: #DBD7D2;
+            cursor: pointer;
+            position: relative;
+            white-space: nowrap;
+        }
+        th.sort-asc::after, th.sort-desc::after {
+            position: absolute; right: 8px; top: 50%;
+            transform: translateY(-50%); font-size: 0.8em; color: #a0d0d0;
+        }
+        th.sort-asc::after { content: ' ▲'; }
+        th.sort-desc::after { content: ' ▼'; }
+
+        /* Column widths — full mode */
+        .col-actions { width: 8%; }
+        .col-order   { width: 5%; }
+        .col-text    { width: 22%; }
+        .col-project { width: 10%; }
+        .col-effort  { width: 4%; }
+        .col-created { width: 8%; }
+        .col-next    { width: 8%; }
+        .col-deadline{ width: 8%; }
+        .col-desc    { width: 27%; }
+
+        table.reduced-columns .col-effort,
+        table.reduced-columns .col-created { display: none; }
+        table.reduced-columns .col-text    { width: 22%; }
+        table.reduced-columns .col-project { width: 12%; }
+        table.reduced-columns .col-order   { width: 5%; }
+        table.reduced-columns .col-next    { width: 10%; }
+        table.reduced-columns .col-deadline{ width: 10%; }
+        table.reduced-columns .col-desc    { width: 28%; }
+        table.reduced-columns .col-actions { width: 10%; }
+
+        tr:nth-child(even) { background-color: #E5E9EB; }
+        tr:nth-child(odd) { background-color: #DBD7D2; }
+        tr:hover { background-color: #008C82; color: #fff; }
+        tr:hover td { border-color: #005f5f; }
+
+        tr.status-done td { text-decoration: line-through; color: #555 !important; background-color: #d0d0d0 !important; }
+        tr.status-done:hover td { background-color: #b0b0b0 !important; color: #333 !important; }
+        tr.status-stopped td { text-decoration: line-through; color: #776666 !important; background-color: #f0e0e0 !important; }
+        tr.status-stopped:hover td { background-color: #e0d0d0 !important; color: #333 !important; }
+        tr.status-done td:first-child button, tr.status-stopped td:first-child button { color: #444; text-decoration: none; }
+        tr.status-done td:first-child button:hover, tr.status-stopped td:first-child button:hover { color: #005f5f; }
+
+        tr.running-late { border-left: 3px solid #a00; }
+
+        tr.selected-row td { background-color: #a8d8d4 !important; color: #1f1f1f !important; }
+        tr.selected-row:hover td { background-color: #88c8c4 !important; }
+
+        td.date-past { background-color: #ffdddd !important; color: #a00 !important; font-weight: bold; }
+        td.date-today { background-color: #fff0dd !important; color: #a60 !important; font-weight: bold; }
+        tr.status-done td.date-past, tr.status-done td.date-today,
+        tr.status-stopped td.date-past, tr.status-stopped td.date-today {
+            background-color: inherit; color: inherit; text-decoration: line-through;
+        }
+
+        /* === Controls === */
+        .toolbar {
+            display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
+            background-color: #DBD7D2; border: 1px solid #5a5a5a;
+            padding: 10px; border-radius: 5px;
+        }
+        .toolbar + .toolbar { margin-top: 8px; }
+        .toolbar input[type="text"] {
+            flex-grow: 1; min-width: 150px; padding: 6px;
+            border: 1px solid #888; border-radius: 3px; font-family: inherit;
+        }
+        .toolbar-spacer { flex-grow: 1; }
+
+        button {
+            padding: 8px 12px; background-color: #008C82; color: white;
+            border: none; border-radius: 4px; cursor: pointer;
+            transition: background-color 0.2s ease; font-family: inherit; font-size: 0.85em;
+        }
+        button:hover { background-color: #005f5f; }
+        button.active-mode { background-color: #d66; border: 1px solid #a44; }
+        button.active-mode:hover { background-color: #b44; }
+        button.secondary { background-color: #888; }
+        button.secondary:hover { background-color: #666; }
+
+        td.cell-actions { text-align: center; }
+        td.cell-actions button {
+            background: none; border: none; font-size: 1.3em; cursor: pointer;
+            padding: 2px; margin: 0 2px; color: #2f4f4f;
+            vertical-align: middle; line-height: 1;
+        }
+        td.cell-actions button:hover { color: #008C82; }
+
+        td.cell-desc { font-size: 0.85em; color: #333; }
+
+        #summaryStats {
+            margin-top: 20px; padding: 10px;
+            background-color: #DBD7D2; border: 1px solid #5a5a5a;
+            border-radius: 5px; text-align: center; font-weight: bold;
+        }
+
+        /* === Modal Overlay === */
+        .modal-overlay {
+            display: none; position: fixed; inset: 0;
+            background: rgba(0,0,0,0.5); z-index: 1000;
+            justify-content: center; align-items: center;
+        }
+        .modal-overlay.active { display: flex; }
+        .modal {
+            background: #DBD7D2; border: 2px solid #2f4f4f;
+            border-radius: 8px; padding: 24px; min-width: 480px; max-width: 600px;
+            width: 90%; max-height: 90vh; overflow-y: auto;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+        }
+        .modal h2 {
+            margin-bottom: 16px; color: #2f4f4f; font-size: 1.2em;
+            border-bottom: 2px solid #2f4f4f; padding-bottom: 8px;
+        }
+        .modal-grid {
+            display: grid; grid-template-columns: auto 1fr;
+            gap: 10px 15px; align-items: center;
+        }
+        .modal-grid.wide { grid-template-columns: auto 1fr auto 1fr; }
+        .modal-grid label { font-weight: bold; text-align: right; font-size: 0.9em; }
+        .modal-grid input, .modal-grid select, .modal-grid textarea {
+            width: 100%; padding: 6px; border: 1px solid #888;
+            border-radius: 3px; font-family: inherit; font-size: 0.9em;
+        }
+        .modal-grid textarea { resize: vertical; min-height: 60px; }
+        .modal-grid .span-full { grid-column: 1 / -1; }
+        .modal-actions {
+            margin-top: 16px; display: flex; justify-content: flex-end; gap: 10px;
+        }
+
+        #fileInput { display: none; }
+
+        /* === Auth gate === */
+        #authOverlay {
+            position: fixed; inset: 0; background: #2A3439;
+            display: flex; justify-content: center; align-items: center; z-index: 2000;
+        }
+        #authBox {
+            background: #DBD7D2; border: 2px solid #2f4f4f; border-radius: 8px;
+            padding: 28px; width: 340px; box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+        }
+        #authBox h1 { color: #2f4f4f; font-size: 1.3em; margin-bottom: 4px; }
+        #authBox p.sub { color: #555; font-size: 0.85em; margin-bottom: 16px; }
+        #authBox input {
+            width: 100%; padding: 8px; margin-bottom: 10px;
+            border: 1px solid #888; border-radius: 3px; font-family: inherit; font-size: 0.95em;
+        }
+        #authBtns { display: flex; gap: 10px; margin-top: 4px; }
+        #authBtns button { flex: 1; }
+        #authMsg { margin-top: 12px; font-size: 0.85em; min-height: 1.2em; }
+        #authMsg.error { color: #a00; }
+        #authMsg.ok { color: #060; }
+        #appRoot { display: none; }
+        #userBadge { color: #DBD7D2; font-size: 0.85em; }
+    </style>
+</head>
+<body>
+
+    <!-- Auth gate -->
+    <div id="authOverlay">
+        <div id="authBox">
+            <h1>Huginn Tasks</h1>
+            <p class="sub">Sign in to your space</p>
+            <input type="email" id="authEmail" placeholder="Email" autocomplete="username">
+            <input type="password" id="authPassword" placeholder="Password" autocomplete="current-password">
+            <div id="authBtns">
+                <button id="signInBtn">Sign in</button>
+                <button id="signUpBtn" class="secondary">Sign up</button>
+            </div>
+            <div id="authMsg"></div>
+        </div>
+    </div>
+
+    <!-- App -->
+    <div id="appRoot">
+        <!-- Top toolbar: quick add & actions -->
+        <div class="toolbar" id="quickAddBar">
+            <input type="text" id="quickAddText" placeholder="Quick add: type task name and press Enter...">
+            <button id="addTaskBtn" title="Add task via modal with all fields">+ Add Task</button>
+            <button id="importBtn" title="Import data from .json file">Import JSON</button>
+            <button id="exportJsonBtn" title="Export all data to .json">Export JSON</button>
+            <button id="exportCsvBtn" title="Export current view to .csv">Export CSV</button>
+            <span class="toolbar-spacer"></span>
+            <span id="userBadge"></span>
+            <button id="signOutBtn" class="secondary" title="Sign out">Sign out</button>
+            <input type="file" id="fileInput" accept=".json">
+        </div>
+
+        <!-- Filter toolbar -->
+        <div class="toolbar" id="filterBar">
+            <input type="text" id="filterText" placeholder="Filter tasks...">
+            <button id="toggleViewBtn" title="Toggle between showing active tasks and all tasks">Show Active</button>
+            <button id="overdueBtn" title="Show only overdue and due tasks">Overdue/Due</button>
+            <button id="toggleColumnsBtn" title="Toggle between reduced and full column set">Reduced View</button>
+            <button id="recalcOrderBtn" title="Re-number order of visible tasks sequentially">Recalc Order</button>
+            <button id="bulkEditBtn" title="Toggle multi-select mode (or press E with selections)">Multi-Edit</button>
+        </div>
+
+        <!-- Main table -->
+        <table id="taskTable">
+            <thead>
+                <tr>
+                    <th class="col-actions" data-sort-key="status">Actions</th>
+                    <th class="col-order" data-sort-key="order">Order</th>
+                    <th class="col-text" data-sort-key="text">Task</th>
+                    <th class="col-project" data-sort-key="projectId">Project</th>
+                    <th class="col-effort" data-sort-key="effort">Eff</th>
+                    <th class="col-created" data-sort-key="createdAt">Created</th>
+                    <th class="col-next" data-sort-key="nextActionDate">Next Action</th>
+                    <th class="col-deadline" data-sort-key="deadline">Deadline</th>
+                    <th class="col-desc" data-sort-key="description">Description</th>
+                </tr>
+            </thead>
+            <tbody id="taskTableBody"></tbody>
+        </table>
+
+        <div id="summaryStats"></div>
+    </div>
+
+    <!-- Edit Modal (single task) -->
+    <div class="modal-overlay" id="editModalOverlay">
+        <div class="modal">
+            <h2 id="editModalTitle">Edit Task</h2>
+            <div class="modal-grid wide">
+                <label for="editText">Task:</label>
+                <input type="text" id="editText" style="grid-column: 2 / 5;">
+
+                <label for="editDesc">Description:</label>
+                <textarea id="editDesc" style="grid-column: 2 / 5;"></textarea>
+
+                <label for="editProject">Project:</label>
+                <select id="editProject"></select>
+
+                <label for="editStatus">Status:</label>
+                <select id="editStatus">
+                    <option value="new">New</option>
+                    <option value="started">Started</option>
+                    <option value="done">Done</option>
+                    <option value="stopped">Stopped</option>
+                </select>
+
+                <label for="editEffort">Effort:</label>
+                <input type="number" id="editEffort" min="1" value="1">
+
+                <label for="editOrder">Order:</label>
+                <input type="number" id="editOrder" step="any">
+
+                <label for="editNextAction">Next Action:</label>
+                <input type="date" id="editNextAction">
+
+                <label for="editDeadline">Deadline:</label>
+                <input type="date" id="editDeadline">
+
+                <label for="editEstDuration">Est. Days:</label>
+                <input type="number" id="editEstDuration" min="1" value="1">
+
+                <label for="editStartDate">Start Date:</label>
+                <input type="date" id="editStartDate">
+
+                <label for="editStartDateType">Start Type:</label>
+                <select id="editStartDateType">
+                    <option value="flexible">Flexible</option>
+                    <option value="fixed">Fixed</option>
+                    <option value="target">Target</option>
+                </select>
+
+                <label for="editEndDate">End Date:</label>
+                <input type="date" id="editEndDate">
+
+                <label for="editEndDateType">End Type:</label>
+                <select id="editEndDateType">
+                    <option value="flexible">Flexible</option>
+                    <option value="fixed">Fixed</option>
+                    <option value="target">Target</option>
+                </select>
+            </div>
+            <div class="modal-actions">
+                <button class="secondary" id="editCancelBtn">Cancel</button>
+                <button id="editSaveBtn">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bulk Edit Modal -->
+    <div class="modal-overlay" id="bulkModalOverlay">
+        <div class="modal">
+            <h2 id="bulkModalTitle">Bulk Edit Tasks</h2>
+            <p style="margin-bottom:12px; font-size:0.9em; color:#555;">All fields will be applied to selected tasks. Clear a date field to remove it from all selected tasks.</p>
+            <div class="modal-grid">
+                <label for="bulkProject">Project:</label>
+                <select id="bulkProject"><option value="">— No change —</option></select>
+
+                <label for="bulkNextAction">Next Action:</label>
+                <input type="date" id="bulkNextAction">
+
+                <label for="bulkDeadline">Deadline:</label>
+                <input type="date" id="bulkDeadline">
+
+                <label for="bulkEffort">Effort:</label>
+                <input type="number" id="bulkEffort" min="1" placeholder="No change">
+
+                <label for="bulkEstDuration">Est. Days:</label>
+                <input type="number" id="bulkEstDuration" min="1" placeholder="No change">
+            </div>
+            <div class="modal-actions">
+                <button class="secondary" id="bulkCancelBtn">Cancel</button>
+                <button id="bulkApplyBtn">Apply to Selected</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="huginn_data_online.js"></script>
+    <script>
+        // ============================
+        // Huginn Tasks (Online)
+        // ============================
+
+        const H = HuginnOnline;
+
+        // --- Application State ---
+        let data = { tasks: [], projects: [] };
+        let editingId = null;              // uuid string
+        let selectedIds = new Set();       // uuid strings
+        let isMultiEditMode = false;
+        let currentSortKey = 'order';
+        let currentSortDirection = 'asc';
+        let currentFilterText = '';
+        let showAllTasks = false;
+        let showOverdueOnly = false;
+        let reducedColumns = false;
+        let todayStr = '';
+
+        // --- DOM refs ---
+        const appRoot = document.getElementById('appRoot');
+        const authOverlay = document.getElementById('authOverlay');
+        const authMsg = document.getElementById('authMsg');
+        const userBadge = document.getElementById('userBadge');
+
+        const taskTableBody = document.getElementById('taskTableBody');
+        const taskTable = document.getElementById('taskTable');
+        const summaryStats = document.getElementById('summaryStats');
+        const filterTextInput = document.getElementById('filterText');
+        const quickAddText = document.getElementById('quickAddText');
+        const fileInput = document.getElementById('fileInput');
+
+        const toggleViewBtn = document.getElementById('toggleViewBtn');
+        const overdueBtn = document.getElementById('overdueBtn');
+        const toggleColumnsBtn = document.getElementById('toggleColumnsBtn');
+        const bulkEditBtn = document.getElementById('bulkEditBtn');
+
+        const editModalOverlay = document.getElementById('editModalOverlay');
+        const editModalTitle = document.getElementById('editModalTitle');
+        const editText = document.getElementById('editText');
+        const editDesc = document.getElementById('editDesc');
+        const editProject = document.getElementById('editProject');
+        const editStatus = document.getElementById('editStatus');
+        const editEffort = document.getElementById('editEffort');
+        const editOrder = document.getElementById('editOrder');
+        const editNextAction = document.getElementById('editNextAction');
+        const editDeadline = document.getElementById('editDeadline');
+        const editEstDuration = document.getElementById('editEstDuration');
+        const editStartDate = document.getElementById('editStartDate');
+        const editStartDateType = document.getElementById('editStartDateType');
+        const editEndDate = document.getElementById('editEndDate');
+        const editEndDateType = document.getElementById('editEndDateType');
+
+        const bulkModalOverlay = document.getElementById('bulkModalOverlay');
+        const bulkProject = document.getElementById('bulkProject');
+        const bulkNextAction = document.getElementById('bulkNextAction');
+        const bulkDeadline = document.getElementById('bulkDeadline');
+        const bulkEffort = document.getElementById('bulkEffort');
+        const bulkEstDuration = document.getElementById('bulkEstDuration');
+
+        // --- Error helper ---
+        function showError(e) {
+            console.error(e);
+            alert('Error: ' + (e && e.message ? e.message : e));
+        }
+
+        // =====================================
+        // AUTH
+        // =====================================
+
+        async function handleSignIn() {
+            authMsg.className = ''; authMsg.textContent = 'Signing in…';
+            try {
+                await H.signIn(authEmail.value.trim(), authPassword.value);
+                // onAuthChange will drive showApp()
+            } catch (e) {
+                authMsg.className = 'error';
+                authMsg.textContent = e.message || 'Sign-in failed.';
+            }
+        }
+
+        async function handleSignUp() {
+            authMsg.className = ''; authMsg.textContent = 'Creating account…';
+            try {
+                const res = await H.signUp(authEmail.value.trim(), authPassword.value);
+                if (res.session) {
+                    authMsg.className = 'ok'; authMsg.textContent = 'Account created.';
+                } else {
+                    authMsg.className = 'ok';
+                    authMsg.textContent = 'Account created — check your email to confirm, then sign in.';
+                }
+            } catch (e) {
+                authMsg.className = 'error';
+                authMsg.textContent = e.message || 'Sign-up failed.';
+            }
+        }
+
+        async function handleSignOut() {
+            try { await H.signOut(); } catch (e) { showError(e); }
+        }
+
+        let loadedUserId = null;   // guards against redundant reloads
+
+        async function showApp(session) {
+            if (!session) {
+                appRoot.style.display = 'none';
+                authOverlay.style.display = 'flex';
+                data = { tasks: [], projects: [] };
+                loadedUserId = null;
+                return;
+            }
+            authOverlay.style.display = 'none';
+            appRoot.style.display = 'block';
+            userBadge.textContent = session.user.email || '';
+            // Same user already loaded (e.g. duplicate auth event) — don't refetch.
+            if (loadedUserId === session.user.id) return;
+            loadedUserId = session.user.id;
+            try {
+                data = await H.loadAll();
+                render();
+            } catch (e) {
+                showError(e);
+            }
+        }
+
+        // =====================================
+        // PROJECT HELPERS
+        // =====================================
+
+        function getProjectName(projectId) {
+            if (projectId == null) return 'Personal Tasks';
+            return H.getProjectPath(projectId, data.projects) || 'Unknown';
+        }
+
+        function populateProjectDropdown(selectEl, includeNoChange) {
+            selectEl.innerHTML = '';
+            if (includeNoChange) {
+                const opt = document.createElement('option');
+                opt.value = ''; opt.textContent = '— No change —';
+                selectEl.appendChild(opt);
+            }
+            const personalOpt = document.createElement('option');
+            personalOpt.value = 'null'; personalOpt.textContent = 'Personal Tasks';
+            selectEl.appendChild(personalOpt);
+
+            data.projects.forEach(p => {
+                if (p.name === H.PERSONAL_PROJECT_NAME && p.parentId == null) return;
+                const opt = document.createElement('option');
+                opt.value = String(p.id);
+                opt.textContent = H.getProjectPath(p.id, data.projects);
+                selectEl.appendChild(opt);
+            });
+        }
+
+        // =====================================
+        // FILTERING & SORTING
+        // =====================================
+
+        function getFilteredAndSortedTasks() {
+            todayStr = H.getTodayDateString();
+            let filtered = data.tasks.slice();
+
+            if (!showAllTasks) {
+                filtered = filtered.filter(t => t.status === 'new' || t.status === 'started');
+            }
+
+            if (showOverdueOnly) {
+                filtered = filtered.filter(t => {
+                    if (t.status === 'done' || t.status === 'stopped') return false;
+                    const nad = t.nextActionDate;
+                    const dl = t.deadline;
+                    return (nad && nad <= todayStr) || (dl && dl <= todayStr) || H.isRunningLate(t);
+                });
+            }
+
+            const lowerFilter = currentFilterText.toLowerCase().trim();
+            if (lowerFilter) {
+                filtered = filtered.filter(t => {
+                    const projectName = getProjectName(t.projectId).toLowerCase();
+                    return t.text.toLowerCase().includes(lowerFilter)
+                        || (t.description || '').toLowerCase().includes(lowerFilter)
+                        || projectName.includes(lowerFilter)
+                        || String(t.status).includes(lowerFilter);
+                });
+            }
+
+            filtered.sort((a, b) => {
+                let valA, valB;
+                if (currentSortKey === 'projectId') {
+                    valA = getProjectName(a.projectId);
+                    valB = getProjectName(b.projectId);
+                } else {
+                    valA = a[currentSortKey];
+                    valB = b[currentSortKey];
+                }
+                const isANull = valA === null || valA === '' || valA === undefined;
+                const isBNull = valB === null || valB === '' || valB === undefined;
+                if (isANull && isBNull) return 0;
+                if (isANull) return 1;
+                if (isBNull) return -1;
+                let cmp = 0;
+                if (typeof valA === 'string') cmp = valA.localeCompare(valB);
+                else if (typeof valA === 'number') cmp = valA - valB;
+                return currentSortDirection === 'asc' ? cmp : -cmp;
+            });
+
+            return filtered;
+        }
+
+        // =====================================
+        // RENDERING
+        // =====================================
+
+        function render() {
+            todayStr = H.getTodayDateString();
+            taskTableBody.innerHTML = '';
+            const tasks = getFilteredAndSortedTasks();
+
+            bulkEditBtn.classList.toggle('active-mode', isMultiEditMode);
+            toggleViewBtn.textContent = showAllTasks ? 'Show Active' : `Show All (${data.tasks.length})`;
+            overdueBtn.classList.toggle('active-mode', showOverdueOnly);
+            toggleColumnsBtn.textContent = reducedColumns ? 'Full View' : 'Reduced View';
+            taskTable.classList.toggle('reduced-columns', reducedColumns);
+
+            document.querySelectorAll('thead th[data-sort-key]').forEach(th => {
+                th.classList.remove('sort-asc', 'sort-desc');
+                if (th.dataset.sortKey === currentSortKey) {
+                    th.classList.add(currentSortDirection === 'asc' ? 'sort-asc' : 'sort-desc');
+                }
+            });
+
+            tasks.forEach(task => {
+                const tr = document.createElement('tr');
+                tr.dataset.id = task.id;
+
+                if (task.status === 'done') tr.classList.add('status-done');
+                else if (task.status === 'stopped') tr.classList.add('status-stopped');
+                if (selectedIds.has(task.id)) tr.classList.add('selected-row');
+                if (H.isRunningLate(task)) tr.classList.add('running-late');
+
+                const tdAct = document.createElement('td');
+                tdAct.className = 'cell-actions col-actions';
+
+                if (task.status === 'new' || task.status === 'started') {
+                    const doneBtn = document.createElement('button');
+                    doneBtn.textContent = '✅'; doneBtn.title = 'Mark as done';
+                    doneBtn.onclick = (e) => { e.stopPropagation(); setStatus(task.id, 'done'); };
+                    tdAct.appendChild(doneBtn);
+                } else {
+                    const reopenBtn = document.createElement('button');
+                    reopenBtn.textContent = '🔄'; reopenBtn.title = 'Re-open task';
+                    reopenBtn.onclick = (e) => { e.stopPropagation(); setStatus(task.id, 'new'); };
+                    tdAct.appendChild(reopenBtn);
+                }
+
+                const editBtn = document.createElement('button');
+                editBtn.textContent = '✏️'; editBtn.title = 'Edit task';
+                editBtn.onclick = (e) => { e.stopPropagation(); openEditModal(task.id); };
+                tdAct.appendChild(editBtn);
+
+                const mailBtn = document.createElement('button');
+                mailBtn.textContent = '✉️'; mailBtn.title = 'Send task via email';
+                mailBtn.onclick = (e) => { e.stopPropagation(); sendMail(task); };
+                tdAct.appendChild(mailBtn);
+
+                if (task.status === 'new' || task.status === 'started') {
+                    const stopBtn = document.createElement('button');
+                    stopBtn.textContent = '🗑️'; stopBtn.title = 'Stop task';
+                    stopBtn.onclick = (e) => { e.stopPropagation(); setStatus(task.id, 'stopped'); };
+                    tdAct.appendChild(stopBtn);
+                }
+                tr.appendChild(tdAct);
+
+                const tdOrder = document.createElement('td');
+                tdOrder.className = 'col-order';
+                tdOrder.textContent = Number(task.order).toFixed(2);
+                tr.appendChild(tdOrder);
+
+                const tdText = document.createElement('td');
+                tdText.className = 'col-text';
+                tdText.textContent = task.text;
+                tr.appendChild(tdText);
+
+                const tdProj = document.createElement('td');
+                tdProj.className = 'col-project';
+                tdProj.textContent = getProjectName(task.projectId);
+                tdProj.style.fontSize = '0.85em';
+                tr.appendChild(tdProj);
+
+                const tdEff = document.createElement('td');
+                tdEff.className = 'col-effort';
+                tdEff.textContent = task.effort;
+                tr.appendChild(tdEff);
+
+                const tdCreated = document.createElement('td');
+                tdCreated.className = 'col-created';
+                tdCreated.textContent = H.formatDateISO(task.createdAt);
+                tr.appendChild(tdCreated);
+
+                ['nextActionDate', 'deadline'].forEach(key => {
+                    const td = document.createElement('td');
+                    td.className = key === 'nextActionDate' ? 'col-next' : 'col-deadline';
+                    const dateVal = task[key] || '';
+                    td.textContent = dateVal;
+                    if (dateVal && (task.status === 'new' || task.status === 'started')) {
+                        if (dateVal < todayStr) td.classList.add('date-past');
+                        else if (dateVal === todayStr) td.classList.add('date-today');
+                    }
+                    tr.appendChild(td);
+                });
+
+                const tdDesc = document.createElement('td');
+                tdDesc.className = 'col-desc cell-desc';
+                tdDesc.textContent = task.description || '';
+                tr.appendChild(tdDesc);
+
+                taskTableBody.appendChild(tr);
+            });
+
+            updateSummary();
+        }
+
+        function updateSummary() {
+            const c = (s) => data.tasks.filter(t => t.status === s).length;
+            const lateCount = data.tasks.filter(t => H.isRunningLate(t)).length;
+            let text = `Tasks: New ${c('new')} | Started ${c('started')} | Done ${c('done')} | Stopped ${c('stopped')}`;
+            if (lateCount > 0) text += ` | Late ${lateCount}`;
+            summaryStats.textContent = text;
+        }
+
+        // =====================================
+        // STATUS MANAGEMENT
+        // =====================================
+
+        async function setStatus(taskId, newStatus) {
+            const task = data.tasks.find(t => t.id === taskId);
+            if (!task) return;
+            const changed = H.applyStatus(task, newStatus);   // mutates local task
+            render();
+            try {
+                const row = await H.updateTask(taskId, changed);
+                Object.assign(task, row);
+            } catch (e) { showError(e); }
+        }
+
+        // =====================================
+        // QUICK ADD
+        // =====================================
+
+        async function quickAddTask() {
+            const text = quickAddText.value.trim();
+            if (!text) return;
+
+            const activeTasks = data.tasks.filter(t => t.status === 'new' || t.status === 'started');
+            const maxOrder = activeTasks.length > 0 ? Math.max(...activeTasks.map(t => Number(t.order))) : 0;
+
+            const now = new Date();
+            const nextAction = new Date(now);
+            nextAction.setDate(now.getDate() + 3);
+
+            quickAddText.value = '';
+            try {
+                const row = await H.createTask({
+                    text,
+                    status: 'new',
+                    order: Math.floor(maxOrder) + 1,
+                    nextActionDate: nextAction.toISOString().split('T')[0]
+                });
+                data.tasks.push(row);
+                render();
+            } catch (e) { showError(e); }
+        }
+
+        // =====================================
+        // EDIT MODAL
+        // =====================================
+
+        function openEditModal(taskId) {
+            const task = taskId ? data.tasks.find(t => t.id === taskId) : null;
+            editingId = taskId || null;
+
+            editModalTitle.textContent = task ? 'Edit Task' : 'New Task';
+            populateProjectDropdown(editProject, false);
+
+            if (task) {
+                editText.value = task.text;
+                editDesc.value = task.description || '';
+                editProject.value = task.projectId != null ? String(task.projectId) : 'null';
+                editStatus.value = task.status;
+                editEffort.value = task.effort;
+                editOrder.value = task.order;
+                editNextAction.value = task.nextActionDate || '';
+                editDeadline.value = task.deadline || '';
+                editEstDuration.value = task.estimatedDurationDays || 1;
+                editStartDate.value = task.startDate || '';
+                editStartDateType.value = task.startDateType || 'flexible';
+                editEndDate.value = task.endDate || '';
+                editEndDateType.value = task.endDateType || 'flexible';
+            } else {
+                editText.value = '';
+                editDesc.value = '';
+                editProject.value = 'null';
+                editStatus.value = 'new';
+                editEffort.value = 1;
+                const activeTasks = data.tasks.filter(t => t.status === 'new' || t.status === 'started');
+                const maxOrder = activeTasks.length > 0 ? Math.max(...activeTasks.map(t => Number(t.order))) : 0;
+                editOrder.value = Math.floor(maxOrder) + 1;
+                const now = new Date();
+                const next = new Date(now); next.setDate(now.getDate() + 3);
+                editNextAction.value = next.toISOString().split('T')[0];
+                editDeadline.value = '';
+                editEstDuration.value = 1;
+                editStartDate.value = '';
+                editStartDateType.value = 'flexible';
+                editEndDate.value = '';
+                editEndDateType.value = 'flexible';
+            }
+
+            editModalOverlay.classList.add('active');
+            editText.focus();
+        }
+
+        function closeEditModal() {
+            editModalOverlay.classList.remove('active');
+            editingId = null;
+        }
+
+        async function saveEditModal() {
+            const text = editText.value.trim();
+            if (!text) { editText.focus(); return; }
+
+            const projectVal = editProject.value;
+            const projectId = projectVal === 'null' ? null : projectVal;  // uuid string
+            const newStatus = editStatus.value;
+
+            const fields = {
+                text: text,
+                description: editDesc.value.trim(),
+                projectId: projectId,
+                effort: Math.max(1, parseInt(editEffort.value, 10) || 1),
+                order: parseFloat(editOrder.value) || 0,
+                nextActionDate: editNextAction.value || null,
+                deadline: editDeadline.value || null,
+                estimatedDurationDays: Math.max(1, parseInt(editEstDuration.value, 10) || 1),
+                startDate: editStartDate.value || null,
+                startDateType: editStartDateType.value,
+                endDate: editEndDate.value || null,
+                endDateType: editEndDateType.value
+            };
+
+            try {
+                if (editingId) {
+                    const task = data.tasks.find(t => t.id === editingId);
+                    if (task) {
+                        Object.assign(task, fields);
+                        if (task.status !== newStatus) H.applyStatus(task, newStatus);
+                        const payload = { ...fields, status: task.status, startedAt: task.startedAt, finishedAt: task.finishedAt };
+                        const row = await H.updateTask(task.id, payload);
+                        Object.assign(task, row);
+                    }
+                } else {
+                    const tmp = { ...fields, status: 'new', startedAt: null, finishedAt: null };
+                    if (newStatus !== 'new') H.applyStatus(tmp, newStatus);
+                    const row = await H.createTask(tmp);
+                    data.tasks.push(row);
+                }
+                closeEditModal();
+                render();
+            } catch (e) { showError(e); }
+        }
+
+        // =====================================
+        // BULK EDIT MODAL
+        // =====================================
+
+        function openBulkModal() {
+            if (selectedIds.size === 0) return;
+            document.getElementById('bulkModalTitle').textContent = `Bulk Edit ${selectedIds.size} Tasks`;
+            populateProjectDropdown(bulkProject, true);
+            bulkNextAction.value = '';
+            bulkDeadline.value = '';
+            bulkEffort.value = '';
+            bulkEstDuration.value = '';
+            bulkModalOverlay.classList.add('active');
+        }
+
+        function closeBulkModal() {
+            bulkModalOverlay.classList.remove('active');
+        }
+
+        async function applyBulkEdit() {
+            const projVal = bulkProject.value;
+            const nextAction = bulkNextAction.value || null;
+            const deadline = bulkDeadline.value || null;
+            const effort = parseInt(bulkEffort.value, 10);
+            const estDuration = parseInt(bulkEstDuration.value, 10);
+
+            const updates = [];
+            data.tasks.forEach(task => {
+                if (!selectedIds.has(task.id)) return;
+                if (projVal !== '') {
+                    task.projectId = projVal === 'null' ? null : projVal;
+                }
+                task.nextActionDate = nextAction;
+                task.deadline = deadline;
+                if (!isNaN(effort) && effort >= 1) task.effort = effort;
+                if (!isNaN(estDuration) && estDuration >= 1) task.estimatedDurationDays = estDuration;
+                updates.push({ id: task.id, fields: {
+                    projectId: task.projectId,
+                    nextActionDate: task.nextActionDate,
+                    deadline: task.deadline,
+                    effort: task.effort,
+                    estimatedDurationDays: task.estimatedDurationDays
+                }});
+            });
+
+            closeBulkModal();
+            selectedIds.clear();
+            isMultiEditMode = false;
+            render();
+            try {
+                await H.updateTasksEach(updates);
+            } catch (e) { showError(e); }
+        }
+
+        // =====================================
+        // MAIL
+        // =====================================
+
+        function sendMail(task) {
+            const project = getProjectName(task.projectId);
+            const subject = encodeURIComponent(`Task: ${task.text}`);
+            const lines = [
+                `Task: ${task.text}`,
+                `Project: ${project}`,
+                `Status: ${task.status}`,
+                `Effort: ${task.effort}`,
+                task.nextActionDate ? `Next Action: ${task.nextActionDate}` : '',
+                task.deadline ? `Deadline: ${task.deadline}` : '',
+                task.description ? `\nDescription:\n${task.description}` : ''
+            ].filter(Boolean);
+            const body = encodeURIComponent(lines.join('\n'));
+            window.location.href = `mailto:?subject=${subject}&body=${body}`;
+        }
+
+        // =====================================
+        // IMPORT / EXPORT
+        // =====================================
+
+        function doExportJSON() {
+            const payload = { huginnVersion: 'online-1.0', tasks: data.tasks, projects: data.projects };
+            const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `huginn_online_${H.getTodayDateString()}.json`;
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        function doExportCSV() {
+            const tasks = getFilteredAndSortedTasks();
+            const headers = ['text', 'status', 'project', 'effort', 'order',
+                'createdAt', 'nextActionDate', 'deadline', 'description',
+                'estimatedDurationDays', 'startDate', 'endDate'];
+            const esc = (cell) => `"${String(cell == null ? '' : cell).replace(/[\n\r]/g, ' ').replace(/"/g, '""')}"`;
+            const rows = [headers.join(',')];
+            tasks.forEach(t => {
+                const row = { ...t, project: getProjectName(t.projectId), createdAt: H.formatDateISO(t.createdAt) };
+                rows.push(headers.map(h => esc(row[h])).join(','));
+            });
+            const blob = new Blob([rows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `huginn_tasks_${H.getTodayDateString()}.csv`;
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        // Sanitize an imported task object into insertable field values.
+        function sanitizeImportedTask(t, projectIdMap) {
+            const validStatus = H.TASK_STATUSES.includes(t.status) ? t.status : 'new';
+            const validDateType = (v) => H.DATE_TYPES.includes(v) ? v : 'flexible';
+            const dateOnly = (v) => (v ? String(v).split('T')[0] : null);
+            // Remap legacy integer projectId -> new uuid (or null for Personal Tasks)
+            let projectId = null;
+            if (t.projectId != null && projectIdMap.has(t.projectId)) {
+                projectId = projectIdMap.get(t.projectId);
+            }
+            return {
+                text: t.text || 'Unnamed Task',
+                description: t.description || '',
+                status: validStatus,
+                startedAt: t.startedAt || null,
+                finishedAt: t.finishedAt || null,
+                projectId: projectId,
+                effort: Math.max(1, parseInt(t.effort, 10) || 1),
+                order: parseFloat(t.order) || 0,
+                nextActionDate: dateOnly(t.nextActionDate),
+                deadline: dateOnly(t.deadline),
+                estimatedDurationDays: Math.max(1, parseInt(t.estimatedDurationDays, 10) || 1),
+                startDate: dateOnly(t.startDate),
+                startDateType: validDateType(t.startDateType),
+                endDate: dateOnly(t.endDate),
+                endDateType: validDateType(t.endDateType)
+            };
+        }
+
+        async function doImport(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = async (e) => {
+                try {
+                    const raw = JSON.parse(e.target.result);
+                    const importedTasks = Array.isArray(raw) ? raw : (raw.tasks || []);
+                    const importedProjects = Array.isArray(raw) ? [] : (raw.projects || []);
+
+                    if (!importedTasks.length) { alert('No tasks found in file.'); return; }
+
+                    // Create projects first (flattened — online Tasks is flat).
+                    // Skip the offline auto "Personal Tasks" project; its tasks map to null.
+                    const projectIdMap = new Map(); // oldId -> newUuid
+                    for (const p of importedProjects) {
+                        if (p.name === H.PERSONAL_PROJECT_NAME && p.parentId == null) continue;
+                        const created = await H.createProject(p.name || 'Imported Project', null);
+                        data.projects.push(created);
+                        projectIdMap.set(p.id, created.id);
+                    }
+
+                    const fieldsList = importedTasks.map(t => sanitizeImportedTask(t, projectIdMap));
+                    const rows = await H.createTasks(fieldsList);
+                    data.tasks.push(...rows);
+
+                    render();
+                    alert(`Imported ${rows.length} tasks` +
+                          (projectIdMap.size ? ` and ${projectIdMap.size} projects (flattened).` : '.'));
+                } catch (err) {
+                    showError(err);
+                }
+            };
+            reader.readAsText(file);
+            event.target.value = null;
+        }
+
+        // =====================================
+        // ORDER RECALCULATION
+        // =====================================
+
+        async function recalcOrder() {
+            const visible = getFilteredAndSortedTasks();
+            const updates = [];
+            visible.forEach((t, i) => {
+                const newOrder = i + 1.0;
+                const task = data.tasks.find(x => x.id === t.id);
+                if (task) { task.order = newOrder; updates.push({ id: task.id, fields: { order: newOrder } }); }
+            });
+            render();
+            try { await H.updateTasksEach(updates); } catch (e) { showError(e); }
+        }
+
+        // =====================================
+        // EVENT LISTENERS
+        // =====================================
+
+        document.getElementById('signInBtn').addEventListener('click', handleSignIn);
+        document.getElementById('signUpBtn').addEventListener('click', handleSignUp);
+        document.getElementById('signOutBtn').addEventListener('click', handleSignOut);
+        authPassword.addEventListener('keydown', (e) => { if (e.key === 'Enter') handleSignIn(); });
+
+        quickAddText.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') { e.preventDefault(); quickAddTask(); }
+        });
+        document.getElementById('addTaskBtn').addEventListener('click', () => openEditModal(null));
+
+        document.getElementById('importBtn').addEventListener('click', () => fileInput.click());
+        fileInput.addEventListener('change', doImport);
+        document.getElementById('exportJsonBtn').addEventListener('click', doExportJSON);
+        document.getElementById('exportCsvBtn').addEventListener('click', doExportCSV);
+
+        filterTextInput.addEventListener('input', (e) => { currentFilterText = e.target.value; render(); });
+        toggleViewBtn.addEventListener('click', () => { showAllTasks = !showAllTasks; render(); });
+        overdueBtn.addEventListener('click', () => { showOverdueOnly = !showOverdueOnly; render(); });
+        toggleColumnsBtn.addEventListener('click', () => { reducedColumns = !reducedColumns; render(); });
+        document.getElementById('recalcOrderBtn').addEventListener('click', recalcOrder);
+
+        bulkEditBtn.addEventListener('click', () => {
+            isMultiEditMode = !isMultiEditMode;
+            if (!isMultiEditMode) selectedIds.clear();
+            render();
+        });
+
+        taskTableBody.addEventListener('click', (e) => {
+            const row = e.target.closest('tr');
+            if (!row || e.target.closest('button')) return;
+            if (!isMultiEditMode) return;
+            const id = row.dataset.id;   // uuid string
+            selectedIds.has(id) ? selectedIds.delete(id) : selectedIds.add(id);
+            render();
+        });
+
+        document.querySelectorAll('thead th[data-sort-key]').forEach(th => {
+            th.addEventListener('click', () => {
+                const key = th.dataset.sortKey;
+                if (currentSortKey === key) {
+                    currentSortDirection = currentSortDirection === 'asc' ? 'desc' : 'asc';
+                } else {
+                    currentSortKey = key;
+                    currentSortDirection = 'asc';
+                }
+                render();
+            });
+        });
+
+        document.getElementById('editSaveBtn').addEventListener('click', saveEditModal);
+        document.getElementById('editCancelBtn').addEventListener('click', closeEditModal);
+        editModalOverlay.addEventListener('click', (e) => { if (e.target === editModalOverlay) closeEditModal(); });
+
+        document.getElementById('bulkApplyBtn').addEventListener('click', applyBulkEdit);
+        document.getElementById('bulkCancelBtn').addEventListener('click', closeBulkModal);
+        bulkModalOverlay.addEventListener('click', (e) => { if (e.target === bulkModalOverlay) closeBulkModal(); });
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'e' || e.key === 'E') {
+                if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+                if (selectedIds.size > 0) { e.preventDefault(); openBulkModal(); }
+            }
+            if (e.key === 'Escape') {
+                if (editModalOverlay.classList.contains('active')) { closeEditModal(); return; }
+                if (bulkModalOverlay.classList.contains('active')) { closeBulkModal(); return; }
+                if (selectedIds.size > 0) { selectedIds.clear(); isMultiEditMode = false; render(); }
+            }
+        });
+
+        editModalOverlay.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && e.target.tagName !== 'TEXTAREA') { e.preventDefault(); saveEditModal(); }
+        });
+
+        // =====================================
+        // INITIALIZATION
+        // =====================================
+        (async function start() {
+            try {
+                H.init();
+                // Defer work out of the auth callback — calling Supabase methods
+                // synchronously inside onAuthStateChange can deadlock in v2.
+                H.onAuthChange((session) => { setTimeout(() => showApp(session), 0); });
+                const session = await H.getSession();
+                await showApp(session);
+            } catch (e) {
+                authMsg.className = 'error';
+                authMsg.textContent = 'Init error: ' + (e.message || e);
+            }
+        })();
+    </script>
+</body>
+</html>
