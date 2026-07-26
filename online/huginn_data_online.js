@@ -166,8 +166,12 @@ const HuginnOnline = (() => {
     }
 
     // --- Pure helpers (no DB) ---------------------------------------------
+    // Local calendar date, not UTC — toISOString() alone would roll over at
+    // 02:00 CEST and hand back "yesterday" for the rest of the evening.
     function getTodayDateString() {
-        return new Date().toISOString().split('T')[0];
+        const d = new Date();
+        return new Date(d.getTime() - d.getTimezoneOffset() * 60000)
+            .toISOString().split('T')[0];
     }
 
     function formatDateISO(dateString) {

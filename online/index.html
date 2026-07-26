@@ -54,15 +54,27 @@
         .col-deadline{ width: 8%; }
         .col-desc    { width: 27%; }
 
-        table.reduced-columns .col-effort,
-        table.reduced-columns .col-created { display: none; }
-        table.reduced-columns .col-text    { width: 22%; }
-        table.reduced-columns .col-project { width: 12%; }
-        table.reduced-columns .col-order   { width: 5%; }
-        table.reduced-columns .col-next    { width: 10%; }
-        table.reduced-columns .col-deadline{ width: 10%; }
-        table.reduced-columns .col-desc    { width: 28%; }
-        table.reduced-columns .col-actions { width: 10%; }
+        /* Reduced view — drop effort + created */
+        table.view-reduced .col-effort,
+        table.view-reduced .col-created { display: none; }
+        table.view-reduced .col-text    { width: 22%; }
+        table.view-reduced .col-project { width: 12%; }
+        table.view-reduced .col-order   { width: 5%; }
+        table.view-reduced .col-next    { width: 10%; }
+        table.view-reduced .col-deadline{ width: 10%; }
+        table.view-reduced .col-desc    { width: 28%; }
+        table.view-reduced .col-actions { width: 10%; }
+
+        /* Mobile view — actions, task, next action only */
+        table.view-mobile .col-order,
+        table.view-mobile .col-project,
+        table.view-mobile .col-effort,
+        table.view-mobile .col-created,
+        table.view-mobile .col-deadline,
+        table.view-mobile .col-desc { display: none; }
+        table.view-mobile .col-actions { width: 30%; }
+        table.view-mobile .col-text    { width: 40%; }
+        table.view-mobile .col-next    { width: 30%; }
 
         tr:nth-child(even) { background-color: #E5E9EB; }
         tr:nth-child(odd) { background-color: #DBD7D2; }
@@ -95,6 +107,8 @@
             padding: 10px; border-radius: 5px;
         }
         .toolbar + .toolbar { margin-top: 8px; }
+        /* .toolbar sets display:flex, which would beat the UA [hidden] rule */
+        .toolbar[hidden] { display: none; }
         .toolbar input[type="text"] {
             flex-grow: 1; min-width: 150px; padding: 6px;
             border: 1px solid #888; border-radius: 3px; font-family: inherit;
@@ -157,6 +171,21 @@
         }
         .modal-grid textarea { resize: vertical; min-height: 60px; }
         .modal-grid .span-full { grid-column: 1 / -1; }
+        .modal-grid.wide .span-wide { grid-column: 2 / 5; }
+
+        /* Read-only view modal */
+        .view-grid {
+            display: grid; grid-template-columns: auto 1fr;
+            gap: 8px 15px; align-items: start;
+        }
+        .view-grid .k {
+            font-weight: bold; text-align: right;
+            font-size: 0.9em; color: #2f4f4f;
+        }
+        .view-grid .v {
+            font-size: 0.9em; white-space: pre-wrap;
+            word-break: break-word; color: #1f1f1f;
+        }
         .modal-actions {
             margin-top: 16px; display: flex; justify-content: flex-end; gap: 10px;
         }
@@ -184,7 +213,25 @@
         #authMsg.error { color: #a00; }
         #authMsg.ok { color: #060; }
         #appRoot { display: none; }
-        #userBadge { color: #DBD7D2; font-size: 0.85em; }
+        #userBadge { color: #555; font-size: 0.85em; }
+
+        /* === Small screens === */
+        @media (max-width: 700px) {
+            body { padding: 8px; }
+            .toolbar { padding: 8px; gap: 8px; }
+            th, td { padding: 6px; }
+            /* Narrow columns can't absorb a nowrap header — let it wrap instead */
+            th { white-space: normal; }
+            td.cell-actions button { font-size: 1.5em; padding: 4px 1px; margin: 0; }
+            /* Mobile view packs 4 action buttons + a full date into ~110px each */
+            table.view-mobile td.cell-actions button { font-size: 1.2em; }
+            table.view-mobile td.col-next { font-size: 0.85em; }
+            /* Long-press opens the view modal — don't select text or pop the callout */
+            #taskTableBody td { user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+            .modal { min-width: 0; padding: 16px; }
+            .modal-grid.wide { grid-template-columns: auto 1fr; }
+            .modal-grid.wide .span-wide { grid-column: 2 / 3; }
+        }
     </style>
 </head>
 <body>
@@ -210,11 +257,20 @@
         <div class="toolbar" id="quickAddBar">
             <input type="text" id="quickAddText" placeholder="Quick add: type task name and press Enter...">
             <button id="addTaskBtn" title="Add task via modal with all fields">+ Add Task</button>
+        </div>
+
+        <!-- Advanced actions (collapsible) -->
+        <div class="toolbar" id="advancedBar">
+            <button id="advancedToggleBtn" class="secondary" title="Show/hide advanced actions">▸ Advanced actions</button>
+            <span class="toolbar-spacer"></span>
+            <span id="userBadge"></span>
+        </div>
+        <div class="toolbar" id="advancedActions" hidden>
             <button id="importBtn" title="Import data from .json file">Import JSON</button>
             <button id="exportJsonBtn" title="Export all data to .json">Export JSON</button>
             <button id="exportCsvBtn" title="Export current view to .csv">Export CSV</button>
+            <button id="recalcOrderBtn" title="Re-number order of visible tasks sequentially">Recalc Order</button>
             <span class="toolbar-spacer"></span>
-            <span id="userBadge"></span>
             <button id="signOutBtn" class="secondary" title="Sign out">Sign out</button>
             <input type="file" id="fileInput" accept=".json">
         </div>
@@ -224,8 +280,7 @@
             <input type="text" id="filterText" placeholder="Filter tasks...">
             <button id="toggleViewBtn" title="Toggle between showing active tasks and all tasks">Show Active</button>
             <button id="overdueBtn" title="Show only overdue and due tasks">Overdue/Due</button>
-            <button id="toggleColumnsBtn" title="Toggle between reduced and full column set">Reduced View</button>
-            <button id="recalcOrderBtn" title="Re-number order of visible tasks sequentially">Recalc Order</button>
+            <button id="toggleColumnsBtn" title="Cycle column set: full → reduced → mobile">View: Full</button>
             <button id="bulkEditBtn" title="Toggle multi-select mode (or press E with selections)">Multi-Edit</button>
         </div>
 
@@ -256,10 +311,10 @@
             <h2 id="editModalTitle">Edit Task</h2>
             <div class="modal-grid wide">
                 <label for="editText">Task:</label>
-                <input type="text" id="editText" style="grid-column: 2 / 5;">
+                <input type="text" id="editText" class="span-wide">
 
                 <label for="editDesc">Description:</label>
-                <textarea id="editDesc" style="grid-column: 2 / 5;"></textarea>
+                <textarea id="editDesc" class="span-wide"></textarea>
 
                 <label for="editProject">Project:</label>
                 <select id="editProject"></select>
@@ -314,6 +369,17 @@
         </div>
     </div>
 
+    <!-- View Modal (read-only) -->
+    <div class="modal-overlay" id="viewModalOverlay">
+        <div class="modal">
+            <h2>Task Details</h2>
+            <div class="view-grid" id="viewModalBody"></div>
+            <div class="modal-actions">
+                <button class="secondary" id="viewCloseBtn">Close</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Bulk Edit Modal -->
     <div class="modal-overlay" id="bulkModalOverlay">
         <div class="modal">
@@ -361,8 +427,12 @@
         let currentFilterText = '';
         let showAllTasks = false;
         let showOverdueOnly = false;
-        let reducedColumns = false;
+        let viewMode = 'reduced';          // 'full' | 'reduced' | 'mobile'
         let todayStr = '';
+
+        const VIEW_MODES = ['full', 'reduced', 'mobile'];
+        const SORT_KEYS = ['status', 'order', 'text', 'projectId', 'effort',
+                           'createdAt', 'nextActionDate', 'deadline', 'description'];
 
         // --- DOM refs ---
         const appRoot = document.getElementById('appRoot');
@@ -397,6 +467,12 @@
         const editStartDateType = document.getElementById('editStartDateType');
         const editEndDate = document.getElementById('editEndDate');
         const editEndDateType = document.getElementById('editEndDateType');
+
+        const viewModalOverlay = document.getElementById('viewModalOverlay');
+        const viewModalBody = document.getElementById('viewModalBody');
+
+        const advancedToggleBtn = document.getElementById('advancedToggleBtn');
+        const advancedActions = document.getElementById('advancedActions');
 
         const bulkModalOverlay = document.getElementById('bulkModalOverlay');
         const bulkProject = document.getElementById('bulkProject');
@@ -500,6 +576,56 @@
         }
 
         // =====================================
+        // VIEW MODE & DEEP LINKS
+        // =====================================
+        // Every filter/view setting round-trips through the query string, so any
+        // configuration of the list can be bookmarked or shared as a link.
+
+        function isMobileDevice() {
+            if (/Mobi|Android|iPhone|iPod/i.test(navigator.userAgent)) return true;
+            // iPadOS ships a desktop UA — a coarse pointer on a smallish screen
+            // catches it. Requiring the pointer check keeps a narrow desktop
+            // window (mouse) on the reduced view rather than the mobile one.
+            return window.matchMedia('(pointer: coarse)').matches
+                && window.matchMedia('(max-width: 900px)').matches;
+        }
+
+        // Reads ?view/sort/dir/q/all/overdue into state. Anything absent or
+        // invalid falls back to the default (mobile devices default to 'mobile').
+        function readStateFromUrl() {
+            const p = new URLSearchParams(location.search);
+            const v = p.get('view');
+            viewMode = VIEW_MODES.includes(v) ? v : (isMobileDevice() ? 'mobile' : 'reduced');
+            const sort = p.get('sort');
+            if (SORT_KEYS.includes(sort)) currentSortKey = sort;
+            const dir = p.get('dir');
+            if (dir === 'asc' || dir === 'desc') currentSortDirection = dir;
+            currentFilterText = p.get('q') || '';
+            showAllTasks = p.get('all') === '1';
+            showOverdueOnly = p.get('overdue') === '1';
+            filterTextInput.value = currentFilterText;
+        }
+
+        // Called from render(), so the URL always mirrors the visible state.
+        // Defaults are omitted to keep shared links short; `view` is always
+        // written so a link pins the layout it was created with.
+        function writeStateToUrl() {
+            const p = new URLSearchParams();
+            p.set('view', viewMode);
+            if (currentSortKey !== 'order') p.set('sort', currentSortKey);
+            if (currentSortDirection !== 'asc') p.set('dir', currentSortDirection);
+            if (currentFilterText.trim()) p.set('q', currentFilterText);
+            if (showAllTasks) p.set('all', '1');
+            if (showOverdueOnly) p.set('overdue', '1');
+            history.replaceState(null, '', location.pathname + '?' + p.toString());
+        }
+
+        function cycleViewMode() {
+            viewMode = VIEW_MODES[(VIEW_MODES.indexOf(viewMode) + 1) % VIEW_MODES.length];
+            render();
+        }
+
+        // =====================================
         // FILTERING & SORTING
         // =====================================
 
@@ -566,8 +692,10 @@
             bulkEditBtn.classList.toggle('active-mode', isMultiEditMode);
             toggleViewBtn.textContent = showAllTasks ? 'Show Active' : `Show All (${data.tasks.length})`;
             overdueBtn.classList.toggle('active-mode', showOverdueOnly);
-            toggleColumnsBtn.textContent = reducedColumns ? 'Full View' : 'Reduced View';
-            taskTable.classList.toggle('reduced-columns', reducedColumns);
+            toggleColumnsBtn.textContent = 'View: ' + viewMode.charAt(0).toUpperCase() + viewMode.slice(1);
+            taskTable.classList.toggle('view-reduced', viewMode === 'reduced');
+            taskTable.classList.toggle('view-mobile', viewMode === 'mobile');
+            writeStateToUrl();
 
             document.querySelectorAll('thead th[data-sort-key]').forEach(th => {
                 th.classList.remove('sort-asc', 'sort-desc');
@@ -701,17 +829,13 @@
             const activeTasks = data.tasks.filter(t => t.status === 'new' || t.status === 'started');
             const maxOrder = activeTasks.length > 0 ? Math.max(...activeTasks.map(t => Number(t.order))) : 0;
 
-            const now = new Date();
-            const nextAction = new Date(now);
-            nextAction.setDate(now.getDate() + 3);
-
             quickAddText.value = '';
             try {
                 const row = await H.createTask({
                     text,
                     status: 'new',
                     order: Math.floor(maxOrder) + 1,
-                    nextActionDate: nextAction.toISOString().split('T')[0]
+                    nextActionDate: H.getTodayDateString()
                 });
                 data.tasks.push(row);
                 render();
@@ -752,9 +876,7 @@
                 const activeTasks = data.tasks.filter(t => t.status === 'new' || t.status === 'started');
                 const maxOrder = activeTasks.length > 0 ? Math.max(...activeTasks.map(t => Number(t.order))) : 0;
                 editOrder.value = Math.floor(maxOrder) + 1;
-                const now = new Date();
-                const next = new Date(now); next.setDate(now.getDate() + 3);
-                editNextAction.value = next.toISOString().split('T')[0];
+                editNextAction.value = H.getTodayDateString();
                 editDeadline.value = '';
                 editEstDuration.value = 1;
                 editStartDate.value = '';
@@ -814,6 +936,50 @@
                 closeEditModal();
                 render();
             } catch (e) { showError(e); }
+        }
+
+        // =====================================
+        // VIEW MODAL (read-only)
+        // =====================================
+        // Opened by double-click (desktop) or long-press (mobile) on a row —
+        // shows every field, including the ones the mobile/reduced views hide.
+
+        const VIEW_FIELDS = [
+            ['Task',        t => t.text],
+            ['Description', t => t.description || '—'],
+            ['Project',     t => getProjectName(t.projectId)],
+            ['Status',      t => t.status],
+            ['Effort',      t => t.effort],
+            ['Order',       t => Number(t.order).toFixed(2)],
+            ['Created',     t => H.formatDateISO(t.createdAt) || '—'],
+            ['Next Action', t => t.nextActionDate || '—'],
+            ['Deadline',    t => t.deadline || '—'],
+            ['Est. Days',   t => t.estimatedDurationDays || '—'],
+            ['Start Date',  t => t.startDate ? `${t.startDate} (${t.startDateType || 'flexible'})` : '—'],
+            ['End Date',    t => t.endDate ? `${t.endDate} (${t.endDateType || 'flexible'})` : '—'],
+            ['Started At',  t => H.formatDateISO(t.startedAt) || '—'],
+            ['Finished At', t => H.formatDateISO(t.finishedAt) || '—']
+        ];
+
+        function openViewModal(taskId) {
+            const task = data.tasks.find(t => t.id === taskId);
+            if (!task) return;
+            viewModalBody.innerHTML = '';
+            VIEW_FIELDS.forEach(([label, get]) => {
+                const k = document.createElement('div');
+                k.className = 'k';
+                k.textContent = label + ':';
+                const v = document.createElement('div');
+                v.className = 'v';
+                v.textContent = String(get(task));
+                viewModalBody.appendChild(k);
+                viewModalBody.appendChild(v);
+            });
+            viewModalOverlay.classList.add('active');
+        }
+
+        function closeViewModal() {
+            viewModalOverlay.classList.remove('active');
         }
 
         // =====================================
@@ -1029,8 +1195,16 @@
         filterTextInput.addEventListener('input', (e) => { currentFilterText = e.target.value; render(); });
         toggleViewBtn.addEventListener('click', () => { showAllTasks = !showAllTasks; render(); });
         overdueBtn.addEventListener('click', () => { showOverdueOnly = !showOverdueOnly; render(); });
-        toggleColumnsBtn.addEventListener('click', () => { reducedColumns = !reducedColumns; render(); });
+        toggleColumnsBtn.addEventListener('click', cycleViewMode);
         document.getElementById('recalcOrderBtn').addEventListener('click', recalcOrder);
+
+        const ADVANCED_OPEN_KEY = 'huginn.advancedOpen';
+        function setAdvancedOpen(open) {
+            advancedActions.hidden = !open;
+            advancedToggleBtn.textContent = (open ? '▾' : '▸') + ' Advanced actions';
+            try { localStorage.setItem(ADVANCED_OPEN_KEY, open ? '1' : '0'); } catch (e) { /* private mode */ }
+        }
+        advancedToggleBtn.addEventListener('click', () => setAdvancedOpen(advancedActions.hidden));
 
         bulkEditBtn.addEventListener('click', () => {
             isMultiEditMode = !isMultiEditMode;
@@ -1038,13 +1212,44 @@
             render();
         });
 
+        // A long-press fires a synthetic click on touch devices; swallow it so
+        // opening the view modal doesn't also toggle multi-edit selection.
+        let longPressTimer = null;
+        let suppressNextClick = false;
+
         taskTableBody.addEventListener('click', (e) => {
             const row = e.target.closest('tr');
             if (!row || e.target.closest('button')) return;
+            if (suppressNextClick) return;
             if (!isMultiEditMode) return;
             const id = row.dataset.id;   // uuid string
             selectedIds.has(id) ? selectedIds.delete(id) : selectedIds.add(id);
             render();
+        });
+
+        taskTableBody.addEventListener('dblclick', (e) => {
+            const row = e.target.closest('tr');
+            if (!row || e.target.closest('button')) return;
+            openViewModal(row.dataset.id);
+        });
+
+        taskTableBody.addEventListener('touchstart', (e) => {
+            const row = e.target.closest('tr');
+            if (!row || e.target.closest('button')) return;
+            clearTimeout(longPressTimer);
+            longPressTimer = setTimeout(() => {
+                longPressTimer = null;
+                suppressNextClick = true;
+                setTimeout(() => { suppressNextClick = false; }, 700);
+                openViewModal(row.dataset.id);
+            }, 500);
+        }, { passive: true });
+
+        ['touchmove', 'touchend', 'touchcancel'].forEach(ev => {
+            taskTableBody.addEventListener(ev, () => {
+                clearTimeout(longPressTimer);
+                longPressTimer = null;
+            }, { passive: true });
         });
 
         document.querySelectorAll('thead th[data-sort-key]').forEach(th => {
@@ -1064,6 +1269,9 @@
         document.getElementById('editCancelBtn').addEventListener('click', closeEditModal);
         editModalOverlay.addEventListener('click', (e) => { if (e.target === editModalOverlay) closeEditModal(); });
 
+        document.getElementById('viewCloseBtn').addEventListener('click', closeViewModal);
+        viewModalOverlay.addEventListener('click', (e) => { if (e.target === viewModalOverlay) closeViewModal(); });
+
         document.getElementById('bulkApplyBtn').addEventListener('click', applyBulkEdit);
         document.getElementById('bulkCancelBtn').addEventListener('click', closeBulkModal);
         bulkModalOverlay.addEventListener('click', (e) => { if (e.target === bulkModalOverlay) closeBulkModal(); });
@@ -1075,6 +1283,7 @@
             }
             if (e.key === 'Escape') {
                 if (editModalOverlay.classList.contains('active')) { closeEditModal(); return; }
+                if (viewModalOverlay.classList.contains('active')) { closeViewModal(); return; }
                 if (bulkModalOverlay.classList.contains('active')) { closeBulkModal(); return; }
                 if (selectedIds.size > 0) { selectedIds.clear(); isMultiEditMode = false; render(); }
             }
@@ -1089,6 +1298,10 @@
         // =====================================
         (async function start() {
             try {
+                readStateFromUrl();
+                let advOpen = false;
+                try { advOpen = localStorage.getItem(ADVANCED_OPEN_KEY) === '1'; } catch (e) { /* private mode */ }
+                setAdvancedOpen(advOpen);
                 H.init();
                 // Defer work out of the auth callback — calling Supabase methods
                 // synchronously inside onAuthStateChange can deadlock in v2.
