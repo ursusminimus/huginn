@@ -189,6 +189,14 @@
         .modal-actions {
             margin-top: 16px; display: flex; justify-content: flex-end; gap: 10px;
         }
+        #editMultiHint {
+            margin-bottom: 12px; font-size: 0.85em; color: #555; line-height: 1.4;
+        }
+        /* Fields not editable across a multi-selection (task text + description) */
+        .modal-grid input:disabled, .modal-grid textarea:disabled, .modal-grid select:disabled {
+            background-color: #c8c4bf; color: #777; cursor: not-allowed;
+        }
+        .modal-grid label.disabled { color: #888; }
 
         #fileInput { display: none; }
 
@@ -281,7 +289,6 @@
             <button id="toggleViewBtn" title="Toggle between showing active tasks and all tasks">Show Active</button>
             <button id="overdueBtn" title="Show only overdue and due tasks">Overdue/Due</button>
             <button id="toggleColumnsBtn" title="Cycle column set: full → reduced → mobile">View: Full</button>
-            <button id="bulkEditBtn" title="Toggle multi-select mode (or press E with selections)">Multi-Edit</button>
         </div>
 
         <!-- Main table -->
@@ -309,6 +316,7 @@
     <div class="modal-overlay" id="editModalOverlay">
         <div class="modal">
             <h2 id="editModalTitle">Edit Task</h2>
+            <p id="editMultiHint" hidden>Only the fields you change are written to the selected tasks. Fields that differ across the selection show <em>— mixed —</em>.</p>
             <div class="modal-grid wide">
                 <label for="editText">Task:</label>
                 <input type="text" id="editText" class="span-wide">
@@ -380,34 +388,6 @@
         </div>
     </div>
 
-    <!-- Bulk Edit Modal -->
-    <div class="modal-overlay" id="bulkModalOverlay">
-        <div class="modal">
-            <h2 id="bulkModalTitle">Bulk Edit Tasks</h2>
-            <p style="margin-bottom:12px; font-size:0.9em; color:#555;">All fields will be applied to selected tasks. Clear a date field to remove it from all selected tasks.</p>
-            <div class="modal-grid">
-                <label for="bulkProject">Project:</label>
-                <select id="bulkProject"><option value="">— No change —</option></select>
-
-                <label for="bulkNextAction">Next Action:</label>
-                <input type="date" id="bulkNextAction">
-
-                <label for="bulkDeadline">Deadline:</label>
-                <input type="date" id="bulkDeadline">
-
-                <label for="bulkEffort">Effort:</label>
-                <input type="number" id="bulkEffort" min="1" placeholder="No change">
-
-                <label for="bulkEstDuration">Est. Days:</label>
-                <input type="number" id="bulkEstDuration" min="1" placeholder="No change">
-            </div>
-            <div class="modal-actions">
-                <button class="secondary" id="bulkCancelBtn">Cancel</button>
-                <button id="bulkApplyBtn">Apply to Selected</button>
-            </div>
-        </div>
-    </div>
-
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="huginn_data_online.js"></script>
     <script>
@@ -419,9 +399,9 @@
 
         // --- Application State ---
         let data = { tasks: [], projects: [] };
-        let editingId = null;              // uuid string
+        let editingIds = [];               // uuid strings currently open in the edit modal
         let selectedIds = new Set();       // uuid strings
-        let isMultiEditMode = false;
+        let selectionAnchorId = null;      // anchor row for shift-click ranges
         let currentSortKey = 'order';
         let currentSortDirection = 'asc';
         let currentFilterText = '';
@@ -450,7 +430,6 @@
         const toggleViewBtn = document.getElementById('toggleViewBtn');
         const overdueBtn = document.getElementById('overdueBtn');
         const toggleColumnsBtn = document.getElementById('toggleColumnsBtn');
-        const bulkEditBtn = document.getElementById('bulkEditBtn');
 
         const editModalOverlay = document.getElementById('editModalOverlay');
         const editModalTitle = document.getElementById('editModalTitle');
@@ -474,12 +453,9 @@
         const advancedToggleBtn = document.getElementById('advancedToggleBtn');
         const advancedActions = document.getElementById('advancedActions');
 
-        const bulkModalOverlay = document.getElementById('bulkModalOverlay');
-        const bulkProject = document.getElementById('bulkProject');
-        const bulkNextAction = document.getElementById('bulkNextAction');
-        const bulkDeadline = document.getElementById('bulkDeadline');
-        const bulkEffort = document.getElementById('bulkEffort');
-        const bulkEstDuration = document.getElementById('bulkEstDuration');
+        const editMultiHint = document.getElementById('editMultiHint');
+        const editTextLabel = document.querySelector('label[for="editText"]');
+        const editDescLabel = document.querySelector('label[for="editDesc"]');
 
         // --- Error helper ---
         function showError(e) {
@@ -689,7 +665,6 @@
             taskTableBody.innerHTML = '';
             const tasks = getFilteredAndSortedTasks();
 
-            bulkEditBtn.classList.toggle('active-mode', isMultiEditMode);
             toggleViewBtn.textContent = showAllTasks ? 'Show Active' : `Show All (${data.tasks.length})`;
             overdueBtn.classList.toggle('active-mode', showOverdueOnly);
             toggleColumnsBtn.textContent = 'View: ' + viewMode.charAt(0).toUpperCase() + viewMode.slice(1);
@@ -800,6 +775,9 @@
             const lateCount = data.tasks.filter(t => H.isRunningLate(t)).length;
             let text = `Tasks: New ${c('new')} | Started ${c('started')} | Done ${c('done')} | Stopped ${c('stopped')}`;
             if (lateCount > 0) text += ` | Late ${lateCount}`;
+            // The hotkeys have no on-screen buttons, so the summary bar advertises them.
+            if (selectedIds.size === 1) text += ' — 1 selected · V view · D done · E edit · R remove · M mail';
+            else if (selectedIds.size > 1) text += ` — ${selectedIds.size} selected · E edit`;
             summaryStats.textContent = text;
         }
 
@@ -846,28 +824,115 @@
         // EDIT MODAL
         // =====================================
 
-        function openEditModal(taskId) {
-            const task = taskId ? data.tasks.find(t => t.id === taskId) : null;
-            editingId = taskId || null;
+        // The modal serves three cases: new task, edit one, edit many.
+        // Field -> control, in the order they appear in the form.
+        const EDIT_CONTROLS = {
+            text:                  editText,
+            description:           editDesc,
+            projectId:             editProject,
+            status:                editStatus,
+            effort:                editEffort,
+            order:                 editOrder,
+            nextActionDate:        editNextAction,
+            deadline:              editDeadline,
+            estimatedDurationDays: editEstDuration,
+            startDate:             editStartDate,
+            startDateType:         editStartDateType,
+            endDate:               editEndDate,
+            endDateType:           editEndDateType
+        };
 
-            editModalTitle.textContent = task ? 'Edit Task' : 'New Task';
-            populateProjectDropdown(editProject, false);
+        // Fields the user actually touched this time round. Multi-edit writes
+        // only these, so an untouched control can never blank out a value.
+        const editDirtyFields = new Set();
 
-            if (task) {
-                editText.value = task.text;
-                editDesc.value = task.description || '';
-                editProject.value = task.projectId != null ? String(task.projectId) : 'null';
-                editStatus.value = task.status;
-                editEffort.value = task.effort;
-                editOrder.value = task.order;
-                editNextAction.value = task.nextActionDate || '';
-                editDeadline.value = task.deadline || '';
-                editEstDuration.value = task.estimatedDurationDays || 1;
-                editStartDate.value = task.startDate || '';
-                editStartDateType.value = task.startDateType || 'flexible';
-                editEndDate.value = task.endDate || '';
-                editEndDateType.value = task.endDateType || 'flexible';
+        Object.entries(EDIT_CONTROLS).forEach(([key, el]) => {
+            const mark = () => editDirtyFields.add(key);
+            el.addEventListener('input', mark);
+            el.addEventListener('change', mark);
+        });
+
+        const MIXED = '__mixed__';
+
+        // Reads the form into a fields object using the same parsing for every case.
+        function readEditForm() {
+            return {
+                text: editText.value.trim(),
+                description: editDesc.value.trim(),
+                projectId: editProject.value === 'null' ? null : editProject.value,
+                status: editStatus.value,
+                effort: Math.max(1, parseInt(editEffort.value, 10) || 1),
+                order: parseFloat(editOrder.value) || 0,
+                nextActionDate: editNextAction.value || null,
+                deadline: editDeadline.value || null,
+                estimatedDurationDays: Math.max(1, parseInt(editEstDuration.value, 10) || 1),
+                startDate: editStartDate.value || null,
+                startDateType: editStartDateType.value,
+                endDate: editEndDate.value || null,
+                endDateType: editEndDateType.value
+            };
+        }
+
+        // Task text and description are per-task by nature — never mass-assigned.
+        function setIdentityFieldsEnabled(enabled) {
+            editText.disabled = !enabled;
+            editDesc.disabled = !enabled;
+            editTextLabel.classList.toggle('disabled', !enabled);
+            editDescLabel.classList.toggle('disabled', !enabled);
+        }
+
+        // Shows a task's value, or a "— mixed —" marker where the selection disagrees.
+        function fillControl(key, tasks) {
+            const el = EDIT_CONTROLS[key];
+            const raw = (t) => {
+                if (key === 'projectId') return t.projectId != null ? String(t.projectId) : 'null';
+                if (key === 'startDateType' || key === 'endDateType') return t[key] || 'flexible';
+                if (key === 'estimatedDurationDays') return String(t[key] || 1);
+                return t[key] == null ? '' : String(t[key]);
+            };
+            const first = raw(tasks[0]);
+            const uniform = tasks.every(t => raw(t) === first);
+
+            if (el.tagName === 'SELECT') {
+                let mixedOpt = el.querySelector(`option[value="${MIXED}"]`);
+                if (!uniform) {
+                    if (!mixedOpt) {
+                        mixedOpt = document.createElement('option');
+                        mixedOpt.value = MIXED;
+                        mixedOpt.textContent = '— mixed —';
+                        el.insertBefore(mixedOpt, el.firstChild);
+                    }
+                    el.value = MIXED;
+                } else {
+                    if (mixedOpt) mixedOpt.remove();
+                    el.value = first;
+                }
             } else {
+                el.value = uniform ? first : '';
+                if (el.type !== 'date') el.placeholder = uniform ? '' : '— mixed —';
+            }
+        }
+
+        function openEditModal(taskIds) {
+            const ids = Array.isArray(taskIds) ? taskIds : (taskIds ? [taskIds] : []);
+            const tasks = ids.map(id => data.tasks.find(t => t.id === id)).filter(Boolean);
+            editingIds = tasks.map(t => t.id);
+            editDirtyFields.clear();
+
+            populateProjectDropdown(editProject, false);
+            // Drop any "— mixed —" options left over from a previous multi-edit
+            [editStatus, editStartDateType, editEndDateType].forEach(sel => {
+                const opt = sel.querySelector(`option[value="${MIXED}"]`);
+                if (opt) opt.remove();
+            });
+
+            const multi = tasks.length > 1;
+            editMultiHint.hidden = !multi;
+            setIdentityFieldsEnabled(!multi);
+
+            if (tasks.length === 0) {
+                // New task
+                editModalTitle.textContent = 'New Task';
                 editText.value = '';
                 editDesc.value = '';
                 editProject.value = 'null';
@@ -883,52 +948,45 @@
                 editStartDateType.value = 'flexible';
                 editEndDate.value = '';
                 editEndDateType.value = 'flexible';
+            } else {
+                editModalTitle.textContent = multi ? `Edit ${tasks.length} Tasks` : 'Edit Task';
+                Object.keys(EDIT_CONTROLS).forEach(key => fillControl(key, tasks));
             }
 
             editModalOverlay.classList.add('active');
-            editText.focus();
+            (multi ? editProject : editText).focus();
         }
 
         function closeEditModal() {
             editModalOverlay.classList.remove('active');
-            editingId = null;
+            editingIds = [];
+            editDirtyFields.clear();
         }
 
         async function saveEditModal() {
-            const text = editText.value.trim();
-            if (!text) { editText.focus(); return; }
+            const multi = editingIds.length > 1;
+            const form = readEditForm();
 
-            const projectVal = editProject.value;
-            const projectId = projectVal === 'null' ? null : projectVal;  // uuid string
-            const newStatus = editStatus.value;
-
-            const fields = {
-                text: text,
-                description: editDesc.value.trim(),
-                projectId: projectId,
-                effort: Math.max(1, parseInt(editEffort.value, 10) || 1),
-                order: parseFloat(editOrder.value) || 0,
-                nextActionDate: editNextAction.value || null,
-                deadline: editDeadline.value || null,
-                estimatedDurationDays: Math.max(1, parseInt(editEstDuration.value, 10) || 1),
-                startDate: editStartDate.value || null,
-                startDateType: editStartDateType.value,
-                endDate: editEndDate.value || null,
-                endDateType: editEndDateType.value
-            };
+            if (!multi && !form.text) { editText.focus(); return; }
 
             try {
-                if (editingId) {
-                    const task = data.tasks.find(t => t.id === editingId);
+                if (multi) {
+                    await saveMultiEdit(form);
+                } else if (editingIds.length === 1) {
+                    const task = data.tasks.find(t => t.id === editingIds[0]);
                     if (task) {
-                        Object.assign(task, fields);
+                        const newStatus = form.status;
+                        const { status, ...rest } = form;
+                        Object.assign(task, rest);
                         if (task.status !== newStatus) H.applyStatus(task, newStatus);
-                        const payload = { ...fields, status: task.status, startedAt: task.startedAt, finishedAt: task.finishedAt };
+                        const payload = { ...rest, status: task.status, startedAt: task.startedAt, finishedAt: task.finishedAt };
                         const row = await H.updateTask(task.id, payload);
                         Object.assign(task, row);
                     }
                 } else {
-                    const tmp = { ...fields, status: 'new', startedAt: null, finishedAt: null };
+                    const newStatus = form.status;
+                    const { status, ...rest } = form;
+                    const tmp = { ...rest, status: 'new', startedAt: null, finishedAt: null };
                     if (newStatus !== 'new') H.applyStatus(tmp, newStatus);
                     const row = await H.createTask(tmp);
                     data.tasks.push(row);
@@ -936,6 +994,32 @@
                 closeEditModal();
                 render();
             } catch (e) { showError(e); }
+        }
+
+        // Applies only the touched fields across the selection. Status goes through
+        // applyStatus so started/finished timestamps stay consistent per task.
+        async function saveMultiEdit(form) {
+            const keys = [...editDirtyFields].filter(k => k !== 'text' && k !== 'description');
+            if (keys.length === 0) return;
+
+            const updates = [];
+            editingIds.forEach(id => {
+                const task = data.tasks.find(t => t.id === id);
+                if (!task) return;
+                const fields = {};
+                keys.forEach(k => {
+                    if (k === 'status') {
+                        Object.assign(fields, H.applyStatus(task, form.status));
+                    } else {
+                        task[k] = form[k];
+                        fields[k] = form[k];
+                    }
+                });
+                updates.push({ id, fields });
+            });
+
+            render();
+            await H.updateTasksEach(updates);
         }
 
         // =====================================
@@ -983,57 +1067,53 @@
         }
 
         // =====================================
-        // BULK EDIT MODAL
+        // SELECTION
         // =====================================
+        // Plain click selects one row; ctrl/cmd-click toggles; shift-click extends
+        // from the anchor across the rows as currently sorted and filtered.
 
-        function openBulkModal() {
-            if (selectedIds.size === 0) return;
-            document.getElementById('bulkModalTitle').textContent = `Bulk Edit ${selectedIds.size} Tasks`;
-            populateProjectDropdown(bulkProject, true);
-            bulkNextAction.value = '';
-            bulkDeadline.value = '';
-            bulkEffort.value = '';
-            bulkEstDuration.value = '';
-            bulkModalOverlay.classList.add('active');
-        }
+        function handleRowClick(id, e) {
+            const visible = getFilteredAndSortedTasks().map(t => t.id);
 
-        function closeBulkModal() {
-            bulkModalOverlay.classList.remove('active');
-        }
-
-        async function applyBulkEdit() {
-            const projVal = bulkProject.value;
-            const nextAction = bulkNextAction.value || null;
-            const deadline = bulkDeadline.value || null;
-            const effort = parseInt(bulkEffort.value, 10);
-            const estDuration = parseInt(bulkEstDuration.value, 10);
-
-            const updates = [];
-            data.tasks.forEach(task => {
-                if (!selectedIds.has(task.id)) return;
-                if (projVal !== '') {
-                    task.projectId = projVal === 'null' ? null : projVal;
+            if (e.shiftKey && selectionAnchorId && visible.includes(selectionAnchorId)) {
+                const from = visible.indexOf(selectionAnchorId);
+                const to = visible.indexOf(id);
+                if (from !== -1 && to !== -1) {
+                    const [lo, hi] = from < to ? [from, to] : [to, from];
+                    // Shift-click replaces the range but keeps the anchor put,
+                    // so dragging the far end around re-picks rather than accumulates.
+                    selectedIds = new Set(visible.slice(lo, hi + 1));
                 }
-                task.nextActionDate = nextAction;
-                task.deadline = deadline;
-                if (!isNaN(effort) && effort >= 1) task.effort = effort;
-                if (!isNaN(estDuration) && estDuration >= 1) task.estimatedDurationDays = estDuration;
-                updates.push({ id: task.id, fields: {
-                    projectId: task.projectId,
-                    nextActionDate: task.nextActionDate,
-                    deadline: task.deadline,
-                    effort: task.effort,
-                    estimatedDurationDays: task.estimatedDurationDays
-                }});
-            });
-
-            closeBulkModal();
-            selectedIds.clear();
-            isMultiEditMode = false;
+            } else if (e.metaKey || e.ctrlKey) {
+                selectedIds.has(id) ? selectedIds.delete(id) : selectedIds.add(id);
+                selectionAnchorId = id;
+            } else {
+                const onlyThis = selectedIds.size === 1 && selectedIds.has(id);
+                selectedIds = onlyThis ? new Set() : new Set([id]);
+                selectionAnchorId = onlyThis ? null : id;
+            }
             render();
-            try {
-                await H.updateTasksEach(updates);
-            } catch (e) { showError(e); }
+        }
+
+        function clearSelection() {
+            if (selectedIds.size === 0) return false;
+            selectedIds.clear();
+            selectionAnchorId = null;
+            render();
+            return true;
+        }
+
+        // The single-selection hotkeys, mirroring the per-row action buttons.
+        function runSingleSelectionAction(key, id) {
+            const task = data.tasks.find(t => t.id === id);
+            if (!task) return;
+            switch (key) {
+                case 'v': openViewModal(id); break;
+                case 'd': setStatus(id, task.status === 'done' ? 'new' : 'done'); break;
+                case 'e': openEditModal(id); break;
+                case 'r': setStatus(id, task.status === 'stopped' ? 'new' : 'stopped'); break;
+                case 'm': sendMail(task); break;
+            }
         }
 
         // =====================================
@@ -1206,14 +1286,8 @@
         }
         advancedToggleBtn.addEventListener('click', () => setAdvancedOpen(advancedActions.hidden));
 
-        bulkEditBtn.addEventListener('click', () => {
-            isMultiEditMode = !isMultiEditMode;
-            if (!isMultiEditMode) selectedIds.clear();
-            render();
-        });
-
         // A long-press fires a synthetic click on touch devices; swallow it so
-        // opening the view modal doesn't also toggle multi-edit selection.
+        // opening the view modal doesn't also change the selection.
         let longPressTimer = null;
         let suppressNextClick = false;
 
@@ -1221,10 +1295,14 @@
             const row = e.target.closest('tr');
             if (!row || e.target.closest('button')) return;
             if (suppressNextClick) return;
-            if (!isMultiEditMode) return;
-            const id = row.dataset.id;   // uuid string
-            selectedIds.has(id) ? selectedIds.delete(id) : selectedIds.add(id);
-            render();
+            // Second click of a double-click belongs to the view modal, not selection
+            if (e.detail > 1) return;
+            handleRowClick(row.dataset.id, e);
+        });
+
+        // Shift-click would otherwise drag-select the text between the two rows.
+        taskTableBody.addEventListener('mousedown', (e) => {
+            if (e.shiftKey && e.target.closest('tr') && !e.target.closest('button')) e.preventDefault();
         });
 
         taskTableBody.addEventListener('dblclick', (e) => {
@@ -1272,20 +1350,33 @@
         document.getElementById('viewCloseBtn').addEventListener('click', closeViewModal);
         viewModalOverlay.addEventListener('click', (e) => { if (e.target === viewModalOverlay) closeViewModal(); });
 
-        document.getElementById('bulkApplyBtn').addEventListener('click', applyBulkEdit);
-        document.getElementById('bulkCancelBtn').addEventListener('click', closeBulkModal);
-        bulkModalOverlay.addEventListener('click', (e) => { if (e.target === bulkModalOverlay) closeBulkModal(); });
+        const SINGLE_SELECTION_KEYS = ['v', 'd', 'e', 'r', 'm'];
 
         document.addEventListener('keydown', (e) => {
-            if (e.key === 'e' || e.key === 'E') {
-                if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
-                if (selectedIds.size > 0) { e.preventDefault(); openBulkModal(); }
-            }
             if (e.key === 'Escape') {
                 if (editModalOverlay.classList.contains('active')) { closeEditModal(); return; }
                 if (viewModalOverlay.classList.contains('active')) { closeViewModal(); return; }
-                if (bulkModalOverlay.classList.contains('active')) { closeBulkModal(); return; }
-                if (selectedIds.size > 0) { selectedIds.clear(); isMultiEditMode = false; render(); }
+                clearSelection();
+                return;
+            }
+
+            // Never steal keystrokes from a text field or an open modal.
+            const tag = e.target.tagName;
+            if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+            if (editModalOverlay.classList.contains('active') ||
+                viewModalOverlay.classList.contains('active')) return;
+            if (e.metaKey || e.ctrlKey || e.altKey) return;
+            if (selectedIds.size === 0) return;
+
+            const key = e.key.toLowerCase();
+            if (selectedIds.size > 1) {
+                // Multi-selection supports edit only.
+                if (key === 'e') { e.preventDefault(); openEditModal([...selectedIds]); }
+                return;
+            }
+            if (SINGLE_SELECTION_KEYS.includes(key)) {
+                e.preventDefault();
+                runSingleSelectionAction(key, [...selectedIds][0]);
             }
         });
 
