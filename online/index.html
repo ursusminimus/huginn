@@ -1111,7 +1111,7 @@
                 case 'v': openViewModal(id); break;
                 case 'd': setStatus(id, task.status === 'done' ? 'new' : 'done'); break;
                 case 'e': openEditModal(id); break;
-                case 'r': setStatus(id, task.status === 'stopped' ? 'new' : 'stopped'); break;
+                case 's': setStatus(id, task.status === 'stopped' ? 'new' : 'stopped'); break;
                 case 'm': sendMail(task); break;
             }
         }
@@ -1350,7 +1350,7 @@
         document.getElementById('viewCloseBtn').addEventListener('click', closeViewModal);
         viewModalOverlay.addEventListener('click', (e) => { if (e.target === viewModalOverlay) closeViewModal(); });
 
-        const SINGLE_SELECTION_KEYS = ['v', 'd', 'e', 'r', 'm'];
+        const SINGLE_SELECTION_KEYS = ['v', 'd', 'e', 's', 'm'];
 
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') {
