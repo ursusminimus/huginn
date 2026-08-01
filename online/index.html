@@ -776,7 +776,7 @@
             let text = `Tasks: New ${c('new')} | Started ${c('started')} | Done ${c('done')} | Stopped ${c('stopped')}`;
             if (lateCount > 0) text += ` | Late ${lateCount}`;
             // The hotkeys have no on-screen buttons, so the summary bar advertises them.
-            if (selectedIds.size === 1) text += ' — 1 selected · V view · D done · E edit · R remove · M mail';
+            if (selectedIds.size === 1) text += ' — 1 selected · V view · D done · E edit · S stop · M mail';
             else if (selectedIds.size > 1) text += ` — ${selectedIds.size} selected · E edit`;
             summaryStats.textContent = text;
         }
